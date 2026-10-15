@@ -1,0 +1,5 @@
+# CogniTerm 随包 --patch 覆盖层（dsh 0.2.0-rc.2 实测有效，--dump-config 验证）：
+# 关闭 session-log-deepseek，不把会话轨迹随模型请求上报。
+- id: session-log-deepseek
+  config:
+    enabled: false

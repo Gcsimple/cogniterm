@@ -1,0 +1,105 @@
+;; CogniTerm sidecar 外层 seatbelt 粗墙（v0）
+;;
+;; 定位：dsh 自带 dsh-sandbox-local（工具执行细粒度 SBPL）管进程内动作；
+;; 本 profile 是进程级外层兜底——默认拒绝，仅放开运行 dsh/node 所需的最小面，
+;; 并对凭据目录与网络做硬约束。
+;;
+;; 启动参数（由 SidecarService 注入）：
+;;   -D WORKSPACE_ROOT=<工作区绝对路径>
+;;   -D HOME_DIR=<用户主目录>
+;;   -D HOME_SSH / HOME_GNUPG / HOME_KEYCHAINS
+;;   -D AWS_CREDS / NETRC（凭据墙完整字面路径）
+;;   -D NPM_CACHE_DIR / USER_CACHE_DIR / USER_LOGS_DIR / APP_SUPPORT_COGNITERM
+;;   -D RUNTIME_DIR
+;;
+;; 注意：依赖 macOS 自带的 sandbox-exec（Apple 已标记 deprecated 但 15.x 仍随系统提供）。
+
+(version 1)
+
+(deny default)
+
+(import "system.sb")
+
+;; ---------------------------------------------------------------------------
+;; 进程：允许 fork/exec 自身（dsh 会派生工具子进程，细粒度约束在内层 sandbox）
+;; ---------------------------------------------------------------------------
+(allow process-exec process-fork process-info-setcontrol
+       signal sysctl*)
+
+;; ---------------------------------------------------------------------------
+;; 文件
+;; ---------------------------------------------------------------------------
+
+;; 路径元数据全局可 stat：node 启动时会 realpath 主模块，逐级 lstat 到根；
+;; 仅授予元数据，不授予内容读取，下方凭据墙 deny 仍然优先生效。
+(allow file-read-metadata)
+
+;; 系统与开发工具链：只读
+(allow file-read* file-map-executable
+       (subpath "/usr")
+       (subpath "/bin")
+       (subpath "/sbin")
+       (subpath "/System")
+       (subpath "/Library/Apple")
+       (subpath "/opt/homebrew")
+       (literal "/dev/dtracehelper")
+       (literal "/dev/null")
+       (literal "/dev/urandom")
+       (literal "/dev/random")
+       (literal "/etc/hosts")
+       (subpath "/private/etc")
+       (subpath "/private/var/db/timezone")
+       (subpath (param "RUNTIME_DIR")))
+
+;; 工作区：读写（受内层 read-only / workspace-write 模式进一步收敛）
+(allow file-read* file-write* file-ioctl
+       (subpath (param "WORKSPACE_ROOT")))
+
+;; 运行期临时目录与缓存（node / npm / 临时 MCP）
+(allow file-read* file-write* file-ioctl
+       (subpath "/private/tmp")
+       (subpath "/private/var/tmp")
+       (subpath "/private/var/folders"))
+
+;; HOME：默认只读遍历（配置、npm 缓存等），写权限按需开。
+;; 同样不能使用双参 subpath（会误编译为匹配 $HOME 基目录，等于对整个主目录放行写）。
+(allow file-read*
+       (subpath (param "HOME_DIR")))
+(allow file-write* file-ioctl
+       (subpath (param "NPM_CACHE_DIR"))
+       (subpath (param "USER_CACHE_DIR"))
+       (subpath (param "USER_LOGS_DIR"))
+       (subpath (param "APP_SUPPORT_COGNITERM")))
+
+;; 凭据硬墙：即使工作区误指向 $HOME，以下路径也不得读取。
+;; 注意：SBPL 的双参 literal（(literal (param "HOME_DIR") "/.netrc")）
+;; 在 macOS 27 上会被错误编译成匹配基目录本身，导致 cwd=$HOME 时 node 引导期
+;; uv_cwd 直接 EPERM、sidecar 崩溃。这里改为由 App 侧把完整路径拼好后单参注入。
+(deny file-read* file-write*
+       (subpath (param "HOME_SSH"))
+       (subpath (param "HOME_GNUPG"))
+       (subpath (param "HOME_KEYCHAINS"))
+       (literal (param "AWS_CREDS"))
+       (literal (param "NETRC")))
+
+;; ---------------------------------------------------------------------------
+;; IPC / 网络
+;; ---------------------------------------------------------------------------
+(allow ipc-posix*)
+(allow mach-lookup)
+
+;; 仅放行远端 HTTPS（443）、DNS（53）与本机 MCP（loopback 任意端口）。
+;; 注意：macOS 26+ 的 SBPL 已移除主机名过滤（host 关键字与具名 host 均无法编译），
+;; 外层只做端口级收敛；模型端点在 dsh 配置层固定为官方 api.deepseek.com。
+(allow network-outbound
+       (remote tcp "*:443")
+       (remote tcp "localhost:*")
+       (remote udp "*:53")
+       (remote udp "localhost:*"))
+(allow network-bind)
+
+;; 其余网络动作（监听非 loopback、原始套接字等）维持 deny default。
+
+;; aha-sandbox-seatbelt-bridge
+(allow file-read* file-write* (subpath "/private/tmp/.sboxcache_502/audit_trae-sandbox_dcc3585d"))
+(allow mach*)

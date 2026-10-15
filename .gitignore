@@ -1,0 +1,34 @@
+# ---- 构建产物（勿入库，体积大且可重建）----
+dist/
+build/
+DerivedData/
+
+# ---- 内置运行时（由 scripts/vendor-runtime.sh 生成）----
+App/Resources/runtime/
+
+# ---- Swift Package Manager ----
+.build/
+.swiftpm/
+
+# ---- Xcode 用户态数据 ----
+*.xcuserdatad/
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# ---- dsh 用户态目录（profiles / 会话 JSONL / 日志）----
+dsh-home/
+
+# ---- 本地环境与密钥 ----
+.env
+*.env
+*.key
+*.p12
+secrets.yml
+
+# ---- 日志与临时文件 ----
+*.log
+*.tmp
+
+# ---- macOS ----
+.DS_Store
