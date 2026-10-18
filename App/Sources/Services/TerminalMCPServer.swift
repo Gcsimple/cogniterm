@@ -54,7 +54,11 @@ enum TerminalMCP {
 protocol TerminalCommandGate: AnyObject {
     /// 请求授权。completion 必达（allow / reject）；超时时服务端会调
     /// cancelTerminalCommandRequest()，实现方此时应 fail-closed 地了结请求。
-    func requestTerminalCommand(_ command: String, completion: @escaping (TerminalCommandDecision) -> Void)
+    /// - Parameter target: 命令将要注入的会话（「本地」/「user@host」）。多会话后
+    ///   审批卡必须标注目标，否则用户无法分辨命令跑在本地还是远程。
+    func requestTerminalCommand(_ command: String,
+                                target: String?,
+                                completion: @escaping (TerminalCommandDecision) -> Void)
     /// 服务端放弃等待（超时）。实现方应清掉挂起的审批并以拒绝语义了结。
     func cancelTerminalCommandRequest()
 }
@@ -64,13 +68,15 @@ enum TerminalCommandDecision {
     case reject
 }
 
-/// 命令执行平面（TerminalSession）。
+/// 命令执行平面（TerminalSession / SessionManager）。
 @MainActor
 protocol TerminalCommandExecutor: AnyObject {
     /// PTY 就绪（会话已启动、视图已 attach）。
     var isTerminalReady: Bool { get }
     /// 正在捕获某条命令的输出（runState == .running）。
     var isCapturingCommand: Bool { get }
+    /// 审批卡上的目标标注（「本地」/「user@host」）。
+    var commandTargetDescription: String { get }
     /// 注入命令执行，收敛后回调剥净 ANSI、截断过的输出。回调必达
     /// （静默 3 秒启发式 + 5 分钟硬超时，见 TerminalSession.runCommandCaptured）。
     func runCommandCaptured(_ command: String, onCapture: @escaping @MainActor (String) -> Void)
@@ -322,7 +328,9 @@ final class TerminalMCPServer: ObservableObject {
             return
         }
         let gateBudget = min(gateTimeout, call.remaining - deadlineMargin)
-        let gateOutcome = await awaitGate(call.command, timeout: gateBudget)
+        let gateOutcome = await awaitGate(call.command,
+                                          target: executor?.commandTargetDescription,
+                                          timeout: gateBudget)
         if call.resolved { await yieldUntilIdle(); return }
         switch gateOutcome {
         case .reject:
@@ -389,7 +397,7 @@ final class TerminalMCPServer: ObservableObject {
         case timeout
     }
 
-    private func awaitGate(_ command: String, timeout: TimeInterval) async -> GateOutcome {
+    private func awaitGate(_ command: String, target: String?, timeout: TimeInterval) async -> GateOutcome {
         guard timeout > 0 else { return .timeout }
         // ⚠️ 不要用 withTaskGroup 做这个赛跑：task group 在作用域退出时
         // **隐式等待所有子任务**，挂在"等用户点允许"上的子任务永远不完，
@@ -403,7 +411,7 @@ final class TerminalMCPServer: ObservableObject {
                     box.resume(.reject)
                     return
                 }
-                self.gate?.requestTerminalCommand(command) { decision in
+                self.gate?.requestTerminalCommand(command, target: target) { decision in
                     box.resume(decision == .allow ? .allow : .reject)
                 }
             }

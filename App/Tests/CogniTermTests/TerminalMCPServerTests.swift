@@ -293,15 +293,20 @@ final class TerminalMCPServerTests: XCTestCase {
 private final class FakeTerminalGate: TerminalCommandGate {
     var autoDecision: TerminalCommandDecision?
     private(set) var pendingCommand: String?
+    private(set) var pendingTarget: String?
     private(set) var cancelCount = 0
     private var completion: ((TerminalCommandDecision) -> Void)?
 
-    func requestTerminalCommand(_ command: String, completion: @escaping (TerminalCommandDecision) -> Void) {
+    func requestTerminalCommand(_ command: String,
+                                target: String?,
+                                completion: @escaping (TerminalCommandDecision) -> Void) {
         pendingCommand = command
+        pendingTarget = target
         self.completion = completion
         if let autoDecision {
             self.completion = nil
             pendingCommand = nil
+            pendingTarget = nil
             completion(autoDecision)
         }
     }
@@ -319,6 +324,7 @@ private final class FakeTerminalGate: TerminalCommandGate {
 private final class FakeTerminalExecutor: TerminalCommandExecutor {
     var isTerminalReady = true
     var isCapturingCommand = false
+    var commandTargetDescription = "本地"
     var holdCaptures = false
     private(set) var commands: [String] = []
     private var heldCapture: (@MainActor (String) -> Void)?

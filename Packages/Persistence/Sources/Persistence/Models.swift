@@ -103,6 +103,47 @@ public final class ApprovalRuleRecord {
     }
 }
 
+/// SSH 会话书签：侧栏「终端」节的数据源。
+///
+/// 只存连接参数，**不存任何凭据**——密码走终端内交互输入，私钥由 ssh 自己读，
+/// passphrase 交给 ssh-agent / 系统钥匙串。凭据库（Keychain 托管）属后续阶段。
+@available(macOS 14.0, *)
+@Model
+public final class SSHBookmark {
+    @Attribute(.unique) public var id: UUID
+    /// 展示名（默认 user@host，用户可改）。
+    public var name: String
+    public var host: String
+    public var port: Int
+    public var username: String
+    /// 私钥路径（支持 `~/`，为空表示交给 ssh 默认逻辑）。
+    public var identityFilePath: String?
+    /// 跳板（ssh -J 语法）。
+    public var jumpHost: String?
+    public var createdAt: Date
+    public var lastUsedAt: Date?
+
+    public init(id: UUID = UUID(),
+                name: String,
+                host: String,
+                port: Int = 22,
+                username: String = "",
+                identityFilePath: String? = nil,
+                jumpHost: String? = nil,
+                createdAt: Date = Date(),
+                lastUsedAt: Date? = nil) {
+        self.id = id
+        self.name = name
+        self.host = host
+        self.port = port
+        self.username = username
+        self.identityFilePath = identityFilePath
+        self.jumpHost = jumpHost
+        self.createdAt = createdAt
+        self.lastUsedAt = lastUsedAt
+    }
+}
+
 /// 三模式：strict=每次询问；rules=命中允许规则才自动放行；closed=一律拒绝。
 public enum PolicyMode: String, CaseIterable, Codable, Sendable {
     case strict

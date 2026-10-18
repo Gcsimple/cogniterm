@@ -250,14 +250,44 @@ private final class TerminalOutputPump: @unchecked Sendable {
 /// 滚动回看、选区复制、IME。老版本自己用正则剥 ANSI、按键攒在 TextField 里
 /// 回车才整行发，vim / less / htop / Ctrl-R / Tab 补全全部不可用。
 @MainActor
-final class TerminalSession: ObservableObject {
+final class TerminalSession: ObservableObject, Identifiable {
 
-    /// 进程内唯一实例。
+    enum Kind: Equatable {
+        case local
+        /// SSH 远程会话：PTY 的子进程是 `/usr/bin/ssh`（见 `TerminalProfile.ssh`）。
+        case ssh
+    }
+
+    /// 本地会话的进程内唯一实例。
     ///
-    /// 之所以要做成单例：快捷键是 **Scene 级 `Commands` 菜单项**，而菜单在
-    /// `App` 上、拿不到 `MainSplitView` 里的 `@StateObject`。`SidecarService`
-    /// 已经是同样的形态，跟着来。
-    static let shared = TerminalSession()
+    /// 快捷键是 **Scene 级 `Commands` 菜单项**，而菜单在 `App` 上、拿不到
+    /// `MainSplitView` 里的 `@StateObject`。侧栏会话列表出现之前，本地会话
+    /// 就是"那个终端"，菜单通过它（或 SessionManager 的活跃会话）干活。
+    /// SSH 会话由 `SessionManager` 创建，不走这个单例。
+    static let shared = TerminalSession(kind: .local, label: "本地")
+
+    /// 会话身份。会话切换与 MCP 目标标注都靠它。
+    let id = UUID()
+    let kind: Kind
+    /// 侧栏与审批卡上的展示名：本地 = 「本地」，SSH = user@host。
+    private(set) var label: String
+    /// 远端目标（nil = 本地 shell）。
+    private(set) var sshTarget: SSHTarget?
+
+    init(kind: Kind, label: String, sshTarget: SSHTarget? = nil) {
+        self.kind = kind
+        self.label = label
+        self.sshTarget = sshTarget
+    }
+
+    /// 「不指定就本地」的便利构造。
+    ///
+    /// 会话多态化之前 `TerminalSession()` 是唯一构造方式，测试里有十来处这么写。
+    /// 留着它比让每个测试各自抄一遍 `kind: .local, label: "本地"` 更不容易抄错，
+    /// 而且语义明确：**只有本地会话可以无参构造**，SSH 必须说清目标。
+    convenience init() {
+        self.init(kind: .local, label: "本地")
+    }
 
     enum Status: Equatable {
         case idle
@@ -329,6 +359,10 @@ final class TerminalSession: ObservableObject {
         return false
     }
 
+    /// 审批卡上的目标标注（「本地」/「user@host」）——多会话后必须说清命令
+    /// 跑在哪个终端，否则用户无法分辨那是本地 shell 还是远程机器。
+    var commandTargetDescription: String { label }
+
     func start(root: URL) {
         guard workspaceRoot == nil else { return }
         workspaceRoot = root.standardizedFileURL
@@ -379,6 +413,8 @@ final class TerminalSession: ObservableObject {
         let standardized = url.standardizedFileURL
         guard workspaceRoot?.path != standardized.path else { return }
         workspaceRoot = standardized
+        // 远程会话与本地工作区无关：远端 cd 到本地路径毫无意义，不能提示同步。
+        guard kind == .local else { return }
         pendingDirectorySync = pty == nil ? nil : standardized.path
     }
 
@@ -663,27 +699,44 @@ final class TerminalSession: ObservableObject {
     func zoomOut() { setFontSizeIndex(fontSizeIndex - 1) }
 
     /// 把终端的 cwd 切到工作区根目录。**只在用户点按钮时调用**（见 `workspaceChanged`）。
+    /// 远程会话没有"本地工作区"概念，直接忽略。
     func syncWorkingDirectory() {
-        guard let root = workspaceRoot, pty != nil else { return }
+        guard kind == .local, let root = workspaceRoot, pty != nil else { return }
         let command = ShellCommand.submitted(ShellCommand.directoryChange(toAbsolutePath: root.path))
         pty?.write(Data(command.utf8))
         pendingDirectorySync = nil
     }
 
+    /// 会话切换后把键盘焦点交给这个终端（点击会话列表即可以开始打字）。
+    func focusTerminal() {
+        guard let view, let window = view.window else { return }
+        window.makeFirstResponder(view)
+    }
+
     // MARK: 展示
+
+    /// 工具栏默认标题：远端显示 user@host，本地显示「本地 shell」。
+    /// shell 通过 OSC 0/2 自报标题时优先用它的（见 `terminalTitle`）。
+    var defaultTitle: String {
+        kind == .ssh ? label : "本地 shell"
+    }
 
     var statusText: String {
         switch status {
         case .idle: return "未启动"
-        case .running(let shell): return (shell as NSString).lastPathComponent
+        case .running(let shell):
+            // SSH 的 status 存的是 user@host（连到哪了比"ssh"更有用）。
+            return kind == .ssh ? shell : (shell as NSString).lastPathComponent
         case .exited(let code): return "已退出（\(code)）"
         case .failed(let message): return "启动失败：\(message)"
         }
     }
 
     /// 优先显示 shell 自报的目录（OSC 7），没有就显示工作区根。
+    /// 远程会话不显示本地目录——那会让人以为命令在本地跑。
     var directoryText: String? {
-        abbreviatingHome(shellDirectory ?? workspaceRoot?.path)
+        guard kind == .local else { return nil }
+        return abbreviatingHome(shellDirectory ?? workspaceRoot?.path)
     }
 
     func syncHint() -> String? {
@@ -752,13 +805,24 @@ final class TerminalSession: ObservableObject {
 
         // 视图的初始网格是 4x4（刻意的，见 TerminalCanvas），所以第一次布局一定
         // 会触发 sizeChanged —— 不必猜尺寸。
-        let profile = TerminalProfile.standard(
-            workingDirectory: root,
-            columns: columns,
-            rows: rows,
-            programName: "CogniTerm",
-            programVersion: Self.programVersion
-        )
+        // SSH 会话：同一套 PTY 管线，只换子进程（见 `TerminalProfile.ssh`）。
+        // 本地会话：login shell + 工作区 cwd。
+        let profile: TerminalProfile
+        if let sshTarget {
+            profile = .ssh(
+                sshTarget,
+                programName: "CogniTerm",
+                programVersion: Self.programVersion
+            )
+        } else {
+            profile = TerminalProfile.standard(
+                workingDirectory: root,
+                columns: columns,
+                rows: rows,
+                programName: "CogniTerm",
+                programVersion: Self.programVersion
+            )
+        }
         let generation = pump.begin()
         let sink = pump
         let terminal = PseudoTerminal()
@@ -774,7 +838,8 @@ final class TerminalSession: ObservableObject {
                 workingDirectory: root, columns: columns, rows: rows
             ))
             pty = terminal
-            status = .running(shell: profile.executablePath)
+            // SSH 的 status 里存展示名（user@host），工具栏据此显示"连到哪了"。
+            status = .running(shell: sshTarget?.displayName ?? profile.executablePath)
         } catch {
             pty = nil
             status = .failed(message: "\(error)")
@@ -788,6 +853,17 @@ final class TerminalSession: ObservableObject {
         pty?.terminate()
         pty?.forceKill()
         pty = nil
+    }
+
+    /// 关会话（SessionManager 从列表移除后调用）：杀 PTY，状态归位。
+    ///
+    /// 与 `restart()` 的区别：这个不重启。本地会话不允许被关（它是 agent 的
+    /// 默认执行平面），只有 SSH 会话会走到这里。
+    func terminate() {
+        stop()
+        launchAttempted = false
+        runState = .idle
+        status = .idle
     }
 
     private func shellExited(code: Int32, generation: Int) {
@@ -1057,10 +1133,10 @@ struct TerminalPanel: View {
 
     private var toolbar: some View {
         HStack(spacing: 4) {
-            Label(session.terminalTitle.isEmpty ? "本地 shell" : session.terminalTitle,
-                  systemImage: session.bellActive ? "bell.fill" : "terminal")
+            Label(session.terminalTitle.isEmpty ? session.defaultTitle : session.terminalTitle,
+                  systemImage: session.kind == .ssh ? "network" : (session.bellActive ? "bell.fill" : "terminal"))
                 .font(.caption.bold())
-                .foregroundStyle(session.bellActive ? Color.orange : Color.secondary)
+                .foregroundStyle(session.bellActive ? Color.orange : (session.kind == .ssh ? Color.blue : Color.secondary))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .help(toolbarHelp)

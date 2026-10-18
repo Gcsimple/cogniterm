@@ -155,7 +155,7 @@ final class ConversationModelTests: XCTestCase {
         let model = ConversationModel()
         model.policyMode = .strict
         var decision: TerminalCommandDecision?
-        model.requestTerminalCommand("ls -la") { decision = $0 }
+        model.requestTerminalCommand("ls -la", target: "本地") { decision = $0 }
 
         let pending = try XCTUnwrap(model.pendingTerminalCommand)
         XCTAssertEqual(pending.command, "ls -la")
@@ -171,7 +171,7 @@ final class ConversationModelTests: XCTestCase {
     func testTerminalGateReject() throws {
         let model = ConversationModel()
         var decision: TerminalCommandDecision?
-        model.requestTerminalCommand("rm -rf build") { decision = $0 }
+        model.requestTerminalCommand("rm -rf build", target: "本地") { decision = $0 }
         model.respondTerminalCommand(allow: false)
         XCTAssertEqual(decision, .reject)
         XCTAssertTrue(model.rows.contains { $0.kind == .system && $0.text.contains("已拒绝") })
@@ -182,7 +182,7 @@ final class ConversationModelTests: XCTestCase {
         let model = ConversationModel()
         model.policyMode = .closed
         var decision: TerminalCommandDecision?
-        model.requestTerminalCommand("ls") { decision = $0 }
+        model.requestTerminalCommand("ls", target: "本地") { decision = $0 }
         XCTAssertEqual(decision, .reject)
         XCTAssertNil(model.pendingTerminalCommand)
     }
@@ -195,14 +195,14 @@ final class ConversationModelTests: XCTestCase {
             ApprovalRule(tool: TerminalMCP.toolName, pattern: "ls *", workspaceScoped: false),
         ])
         var decision: TerminalCommandDecision?
-        model.requestTerminalCommand("ls -la") { decision = $0 }
+        model.requestTerminalCommand("ls -la", target: "本地") { decision = $0 }
         XCTAssertEqual(decision, .allow)
         XCTAssertNil(model.pendingTerminalCommand)
         XCTAssertTrue(model.rows.contains { $0.kind == .system && $0.text.contains("规则命中自动允许") })
 
         // 不命中：照样挂卡（fail-closed，不猜）。
         var second: TerminalCommandDecision?
-        model.requestTerminalCommand("rm -rf /") { second = $0 }
+        model.requestTerminalCommand("rm -rf /", target: "本地") { second = $0 }
         XCTAssertNil(second)
         XCTAssertNotNil(model.pendingTerminalCommand)
     }
@@ -211,7 +211,7 @@ final class ConversationModelTests: XCTestCase {
     func testTerminalGateBeginSessionCancelsPending() throws {
         let model = ConversationModel()
         var decision: TerminalCommandDecision?
-        model.requestTerminalCommand("ls") { decision = $0 }
+        model.requestTerminalCommand("ls", target: "本地") { decision = $0 }
         model.beginSession()
         XCTAssertEqual(decision, .reject)
         XCTAssertNil(model.pendingTerminalCommand)

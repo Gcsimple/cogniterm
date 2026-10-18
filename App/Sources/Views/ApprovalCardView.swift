@@ -153,6 +153,18 @@ struct TerminalCommandCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
 
+            // 多会话后必须说清注入到哪个终端：本地 shell 与远程机器上执行
+            // 同一条命令的后果完全不同。
+            if let target = pending.target {
+                HStack(spacing: 4) {
+                    Image(systemName: target == "本地" ? "laptopcomputer" : "network")
+                        .font(.caption2)
+                    Text("目标终端：\(target)")
+                        .font(.caption2)
+                }
+                .foregroundStyle(.secondary)
+            }
+
             if let root = pending.workspaceRoot {
                 Text("工作目录：\(root)")
                     .font(.caption2)

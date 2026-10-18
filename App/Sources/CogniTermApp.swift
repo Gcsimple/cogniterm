@@ -55,7 +55,9 @@ struct CogniTermApp: App {
 @MainActor
 struct TerminalCommands: Commands {
     @ObservedObject private var focus = TerminalFocus.shared
-    @ObservedObject private var session = TerminalSession.shared
+    /// 动作作用于**活跃会话**（本地或 SSH）——菜单在 App 级，够不到窗口状态，
+    /// 账户由 SessionManager 这个进程级注册表持有。
+    @ObservedObject private var sessions = SessionManager.shared
     /// 面板折叠态（与 MainSplitView 共享同一个 UserDefaults 键）。
     /// 走 @AppStorage 而不是 @State：菜单是 Scene 级，够不到 MainSplitView 的
     /// @StateObject；两处状态不一致时菜单折叠了界面不折叠。
@@ -63,30 +65,30 @@ struct TerminalCommands: Commands {
 
     var body: some Commands {
         CommandMenu("终端") {
-            Button("清屏") { session.handleShortcut(.clear) }
+            Button("清屏") { sessions.activeSession.handleShortcut(.clear) }
                 .keyboardShortcut("k", modifiers: .command)
                 .disabled(!enabled)
-            Button("查找…") { session.handleShortcut(.find) }
+            Button("查找…") { sessions.activeSession.handleShortcut(.find) }
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(!enabled)
 
             // 选区 → agent 上下文（VS Code「Add to Chat」同款）。
             // ⌘I 而不是 ⌘↵：⌘↵ 在 ComposerView 是发送键，不能抢。
-            Button("询问 Agent…") { session.askAgentWithSelection() }
+            Button("询问 Agent…") { sessions.activeSession.askAgentWithSelection() }
                 .keyboardShortcut("i", modifiers: .command)
                 .disabled(!focus.isTerminalFocused)
 
             // 当前屏幕 → agent：懒得拖选时发「眼睛正看着的这一屏」。
             // 不判焦点：读的是缓冲区内容，终端没聚焦也照常可发。
-            Button("发送当前屏幕给 Agent…") { session.sendScreenToAgent() }
+            Button("发送当前屏幕给 Agent…") { sessions.activeSession.sendScreenToAgent() }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
 
             Divider()
 
-            Button("重启 Shell") { session.handleShortcut(.restart) }
+            Button("重启 Shell") { sessions.activeSession.handleShortcut(.restart) }
                 .keyboardShortcut("r", modifiers: .command)
                 .disabled(!focus.isTerminalFocused)
-            Button("中断") { session.handleShortcut(.interrupt) }
+            Button("中断") { sessions.activeSession.handleShortcut(.interrupt) }
                 .keyboardShortcut(".", modifiers: .command)
                 .disabled(!enabled)
 
@@ -100,13 +102,13 @@ struct TerminalCommands: Commands {
 
             Divider()
 
-            Button("放大字号") { session.handleShortcut(.zoomIn) }
+            Button("放大字号") { sessions.activeSession.handleShortcut(.zoomIn) }
                 .keyboardShortcut("+", modifiers: .command)
                 .disabled(!focus.isTerminalFocused)
-            Button("缩小字号") { session.handleShortcut(.zoomOut) }
+            Button("缩小字号") { sessions.activeSession.handleShortcut(.zoomOut) }
                 .keyboardShortcut("-", modifiers: .command)
                 .disabled(!focus.isTerminalFocused)
-            Button("实际字号") { session.handleShortcut(.zoomReset) }
+            Button("实际字号") { sessions.activeSession.handleShortcut(.zoomReset) }
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(!focus.isTerminalFocused)
         }
@@ -114,6 +116,6 @@ struct TerminalCommands: Commands {
 
     /// 需要 shell 真的在跑的动作。焦点 + 运行态两个条件都满足才启用。
     private var enabled: Bool {
-        focus.isTerminalFocused && session.status.isRunning
+        focus.isTerminalFocused && sessions.activeSession.status.isRunning
     }
 }

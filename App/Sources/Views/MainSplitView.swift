@@ -6,13 +6,21 @@ import AcpClient
 import PolicyEngine
 import Persistence
 import SessionLogReader
+import TerminalCore
 
 struct MainSplitView: View {
     @StateObject private var sidecar = SidecarService.shared
     @StateObject private var conversation = ConversationModel()
     // shared 而不是自建实例：菜单项（Scene 级 Commands）够不到这里的 @StateObject，
     // 两边的实例不一致时菜单操作的和界面上显示的不是同一个会话。
+    /// 终端会话集合（本地 + SSH）。终端面板与 agent 执行平面都指向它的活跃会话。
+    @ObservedObject private var sessions = SessionManager.shared
+    /// 本地会话：只有它的 cwd（OSC 7）与工作区是同一个坐标系，其余同步逻辑仍指它。
     @ObservedObject private var terminal = TerminalSession.shared
+    /// SSH 书签（侧栏「SSH 书签」节的数据源）。
+    @Query(sort: \SSHBookmark.lastUsedAt, order: .reverse) private var sshBookmarks: [SSHBookmark]
+    /// 新建 SSH 会话表单。
+    @State private var showNewSSHSession = false
     /// 终端 MCP server（agent 的 run_in_terminal 执行平面）。观察它是为了让
     /// 侧栏那行端点状态在监听成功/失败时自动刷新。
     @ObservedObject private var terminalMCP = TerminalMCPServer.shared
@@ -63,11 +71,13 @@ struct MainSplitView: View {
             loadSettings()
             terminal.start(root: URL(fileURLWithPath: workspacePath))
             // 终端 MCP server：agent 的 run_in_terminal 工具经它在我们的 PTY 上
-            // 执行（审批门 = conversation，执行平面 = terminal）。sidecar.start()
-            // 会在 session/new 前启动它并注册 mcpServers；这里先把依赖接好。
+            // 执行（审批门 = conversation，执行平面 = SessionManager 的活跃会话）。
+            // sidecar.start() 会在 session/new 前启动它并注册 mcpServers；这里先把依赖接好。
             let mcp = TerminalMCPServer.shared
             mcp.gate = conversation
-            mcp.executor = terminal
+            // 多会话后执行平面是「当时的活跃会话」：SessionManager 委托 + 审批卡
+            // 标注目标（本地 / user@host），见 SessionManager 的 executor 扩展。
+            mcp.executor = sessions
             // 值捕获（MainSplitView 是 struct，无法 weak）：捕获到的都是 app 级
             // 长生命周期对象（sidecar/conversation 单例或随窗口存活），强持有无泄漏。
             // 迟到的输出（超过 55s 窗口才收敛的命令）经这里回喂成一次 prompt。
@@ -87,6 +97,9 @@ struct MainSplitView: View {
         }
         .sheet(isPresented: $sidecar.needsOnboarding) {
             OnboardingView(sidecar: sidecar)
+        }
+        .sheet(isPresented: $showNewSSHSession) {
+            NewSSHSessionSheet()
         }
         .sheet(item: $replay) { item in
             SessionReplayView(state: item.state, title: item.title)
@@ -138,6 +151,46 @@ struct MainSplitView: View {
                 Text("审批模式：\(policyLabel) · 沙箱：\(sandboxLabel)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("终端") {
+                ForEach(sessions.sessions) { session in
+                    terminalSessionRow(session)
+                }
+                Button {
+                    showNewSSHSession = true
+                } label: {
+                    Label("新建 SSH 会话…", systemImage: "network")
+                }
+                .font(.caption)
+            }
+
+            if !sshBookmarks.isEmpty {
+                Section("SSH 书签") {
+                    ForEach(sshBookmarks) { bookmark in
+                        Button {
+                            openBookmark(bookmark)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(bookmark.name)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                Text(bookmarkSubtitle(bookmark))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button("删除书签", role: .destructive) {
+                                modelContext.delete(bookmark)
+                                try? modelContext.save()
+                            }
+                        }
+                    }
+                }
             }
 
             Section("工作区") {
@@ -265,6 +318,56 @@ struct MainSplitView: View {
         .listStyle(.sidebar)
     }
 
+    // MARK: - 终端会话 / 书签
+
+    /// 侧栏一行会话：状态点 + 名称 + 运行态；点击切换，右键关闭（仅 SSH）。
+    ///
+    /// 渲染交给 `TerminalSessionRow`：它会各自 `@ObservedObject` 订阅自己那条会话。
+    /// 直接在方法里读 `session.status` 只有**活跃**会话能刷新（SessionManager 只转发
+    /// 活跃会话的变化），后台正在连的 SSH 会一直显示旧状态点。
+    private func terminalSessionRow(_ session: TerminalSession) -> some View {
+        TerminalSessionRow(
+            session: session,
+            isActive: session.id == sessions.activeSessionID,
+            onActivate: { sessions.activate(session.id) },
+            onClose: { sessions.close(session.id) },
+            onRestart: { session.restart() }
+        )
+    }
+
+    private func bookmarkSubtitle(_ bookmark: SSHBookmark) -> String {
+        var parts: [String] = []
+        if !bookmark.username.isEmpty { parts.append(bookmark.username) }
+        parts.append(bookmark.port == 22 ? bookmark.host : "\(bookmark.host):\(bookmark.port)")
+        if let jump = bookmark.jumpHost, !jump.isEmpty { parts.append("经 \(jump)") }
+        return parts.joined(separator: " @ ")
+    }
+
+    private func target(from bookmark: SSHBookmark) -> SSHTarget {
+        SSHTarget(
+            host: bookmark.host,
+            port: bookmark.port,
+            username: bookmark.username.isEmpty ? nil : bookmark.username,
+            identityFilePath: bookmark.identityFilePath,
+            jumpHost: bookmark.jumpHost
+        )
+    }
+
+    private func openBookmark(_ bookmark: SSHBookmark) {
+        let target = target(from: bookmark)
+        guard target.isValid else {
+            sidecar.diagnostics.append("[ssh] 书签「\(bookmark.name)」参数不合法，已忽略")
+            return
+        }
+        bookmark.lastUsedAt = Date()
+        try? modelContext.save()
+        sessions.openSSHSession(
+            target: target,
+            label: bookmark.name,
+            root: FileManager.default.homeDirectoryForCurrentUser
+        )
+    }
+
     // MARK: - Detail
 
     private var detail: some View {
@@ -290,7 +393,10 @@ struct MainSplitView: View {
                         onRunInTerminal: { command in
                             conversation.respondRunInTerminal()
                             pendingTerminalCommand = command
-                            terminal.runCommandCaptured(command) { output in
+                            // 与 MCP 的 run_in_terminal 同一条路径：注入**活跃会话**
+                            // （本地或 SSH 一致）。写死本地单例的话，用户在 SSH
+                            // 会话里点「在终端运行」，命令会跑到看不见的本地终端里。
+                            sessions.runCommandCaptured(command) { output in
                                 feedTerminalOutputBackToAgent(command: command, output: output)
                             }
                         }
@@ -307,10 +413,20 @@ struct MainSplitView: View {
             } else {
                 terminalResizeHandle
 
-                TerminalPanel(session: terminal, onRunCapture: { output in
-                    guard let command = pendingTerminalCommand else { return }
-                    feedTerminalOutputBackToAgent(command: command, output: output)
-                })
+                // 每个会话一个常驻面板（ZStack + opacity）：切换会话不重建 NSView，
+                // 各会话的 scrollback、正在跑的命令、未读计数全部保留。
+                // 隐藏者不接收点击/键盘（allowsHitTesting），焦点由 SessionManager 交还。
+                ZStack {
+                    ForEach(sessions.sessions) { session in
+                        let isActive = session.id == sessions.activeSessionID
+                        TerminalPanel(session: session, onRunCapture: { output in
+                            guard let command = pendingTerminalCommand else { return }
+                            feedTerminalOutputBackToAgent(command: command, output: output)
+                        })
+                        .opacity(isActive ? 1 : 0)
+                        .allowsHitTesting(isActive)
+                    }
+                }
                 .frame(height: terminalHeight)
             }
         }
@@ -327,7 +443,9 @@ struct MainSplitView: View {
     /// 会话，归工作区切换流程管。
     private var cwdDivergenceBar: some View {
         Group {
-            if let shellDirectory = terminal.shellDirectory,
+            // 跟着**活跃**会话走：切到 SSH 时 shellDirectory 恒为 nil（远端 cwd
+            // 与本地工作区无可比性），提示条自然隐藏，不会拿本地的旧目录骗人。
+            if let shellDirectory = sessions.activeSession.shellDirectory,
                !workspacePath.isEmpty,
                shellDirectory != workspacePath {
                 HStack(spacing: 6) {
@@ -338,10 +456,10 @@ struct MainSplitView: View {
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 8)
                     Button("终端 cd 到工作区") {
-                        terminal.syncWorkingDirectory()
+                        sessions.activeSession.syncWorkingDirectory()
                     }
                     .font(.caption2)
-                    .disabled(!terminal.status.isRunning)
+                    .disabled(!sessions.activeSession.status.isRunning)
                     .help("往终端注入 cd 命令，把 shell 拉回 agent 工作区")
                 }
                 .padding(.horizontal, 12)
@@ -362,13 +480,15 @@ struct MainSplitView: View {
             .font(.caption)
             .buttonStyle(.plain)
             .help("展开终端面板（⌘J 或双击原分隔条位置）")
-            Text(terminal.terminalTitle.isEmpty ? "本地 shell" : terminal.terminalTitle)
+            Text(sessions.activeSession.terminalTitle.isEmpty
+                 ? sessions.activeSession.defaultTitle
+                 : sessions.activeSession.terminalTitle)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer(minLength: 8)
-            if let directory = terminal.directoryText {
+            if let directory = sessions.activeSession.directoryText {
                 Text(directory)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.tertiary)
@@ -590,6 +710,65 @@ struct MainSplitView: View {
         modelContext.insert(ApprovalRuleRecord(rule))
         try? modelContext.save()
         loadRules()
+    }
+}
+
+/// 侧栏的一行终端会话（本地 / SSH 同款渲染）。
+///
+/// 单独成 view 的唯一原因是**订阅粒度**：会话状态是各会话自己的 `@Published`，
+/// 而 `SessionManager` 只转发活跃会话的 `objectWillChange`。写在外层方法里时，
+/// 后台正在连接的 SSH 会话状态点不会更新（用户看到「从没连上过」的假象）。
+private struct TerminalSessionRow: View {
+    @ObservedObject var session: TerminalSession
+    let isActive: Bool
+    let onActivate: () -> Void
+    let onClose: () -> Void
+    let onRestart: () -> Void
+
+    /// 状态点的颜色语义：绿=跑着，橙=已退出（可重启），红=起不来，灰=空闲/未连。
+    private var dotColor: Color {
+        switch session.status {
+        case .running: return .green
+        case .exited: return .orange
+        case .failed: return .red
+        case .idle: return Color.secondary.opacity(0.35)
+        }
+    }
+
+    var body: some View {
+        Button(action: onActivate) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(dotColor)
+                    .frame(width: 7, height: 7)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(session.label)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(session.statusText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                if isActive {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.tint)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
+            Button("重启", action: onRestart)
+            // 本地会话不提供关闭：它是 agent 的默认执行平面（关掉后 run_in_terminal
+            // 无处可去，而菜单/审批卡都默认它存在）。
+            if session.kind == .ssh {
+                Button("关闭会话", role: .destructive, action: onClose)
+            }
+        }
     }
 }
 

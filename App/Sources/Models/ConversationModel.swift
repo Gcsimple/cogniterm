@@ -126,15 +126,19 @@ final class ConversationModel: ObservableObject {
     final class PendingTerminalCommand: Identifiable {
         let id = UUID()
         let command: String
+        /// 命令将要注入的会话（「本地」/「user@host」）。
+        let target: String?
         let workspaceRoot: String?
         /// 服务端（TerminalMCPServer）传入的应答闭包；它在 withCheckedContinuation
         /// 里 resume，所以这里只存闭包，不持有 continuation。
         fileprivate let completion: (TerminalCommandDecision) -> Void
 
         init(command: String,
+             target: String?,
              workspaceRoot: String?,
              completion: @escaping (TerminalCommandDecision) -> Void) {
             self.command = command
+            self.target = target
             self.workspaceRoot = workspaceRoot
             self.completion = completion
         }
@@ -144,7 +148,9 @@ final class ConversationModel: ObservableObject {
 
     /// TerminalCommandGate 实现：closed 全拒；rules 命中规则自动放行；
     /// 其余（strict 或 rules 未命中）弹审批卡等人。
-    func requestTerminalCommand(_ command: String, completion: @escaping (TerminalCommandDecision) -> Void) {
+    func requestTerminalCommand(_ command: String,
+                                target: String?,
+                                completion: @escaping (TerminalCommandDecision) -> Void) {
         switch policyMode {
         case .closed:
             appendSystem("闭关模式：已自动拒绝 agent 的终端命令请求")
@@ -168,6 +174,7 @@ final class ConversationModel: ObservableObject {
         appendSystem("agent 请求在终端执行命令，等待审批…")
         pendingTerminalCommand = PendingTerminalCommand(
             command: command,
+            target: target,
             workspaceRoot: workspaceRoot,
             completion: completion
         )

@@ -10,6 +10,7 @@ public enum PersistenceStack {
             SessionRecord.self,
             ApprovalRuleRecord.self,
             AppSettings.self,
+            SSHBookmark.self,
         ])
     }
 
