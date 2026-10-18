@@ -295,7 +295,12 @@ LS_HITS="$("$LSR" -dump 2>/dev/null \
 LS_OTHER="$(printf '%s\n' "$LS_HITS" \
   | grep -v "^$APP$" \
   | grep -v "^$INSTALLED$" \
-  | grep -v '^$' || true)"
+  | grep -v '^$' \
+  | while IFS= read -r p; do [ -e "$p" ] && printf '%s\n' "$p"; done || true)"
+# 只把**实际存在**的副本算作威胁。LaunchServices 会长期保留已删除副本的孤儿登记：
+# 副本进了废纸篓再被清空后，`lsregister -u <path>` 因为路径不存在而无法定位记录，
+# 新版 macOS 又移除了 `lsregister -kill`（提示 "-kill option has been removed"）。
+# 这类条目指向不存在的文件，不可能抢走 bundle id 解析，若也算失败，校验会永久卡死。
 if [ -n "$LS_OTHER" ]; then
   echo "!! LaunchServices 里还注册着别的 CogniTerm.app 副本（会抢解析）：" >&2
   echo "$LS_OTHER" | sed 's/^/     /' >&2
