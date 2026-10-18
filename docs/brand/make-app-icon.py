@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
 """生成 CogniTerm 的 App 图标（macOS AppIcon.appiconset）。
 
-设计语言：与 Codex 同族
-  - 竖向三段渐变（浅 → 中 → 深），单一主色，白色镂空字形
-  - 零装饰：没有 sparkles、没有粒子、没有 3D 立体投影
-刻意不同之处（避免「抄形状 + 抄配色」）
-  - 字形是「> 提示符 + 认知节点（实心圆点）」，不是 Codex 的「> + 短横线」
-  - 主色走紫，不用 Codex 的 #B1A7FF / #7A9DFF / #3941FF
+风格来源：ChatGPT for macOS 的图标（拆它的 icns 量的）
+  - 底板是**近白**（#FFFFFF 顶部 → #ECECF0 底部），不是彩色
+  - 字形是**近黑偏冷**的实心色（#3A3F52 → #0A0C12），不是纯黑
+  - 字形有**材质感**：上缘一道柔和高光 + 底部投影，像一根有厚度的管子
+  - 零装饰，画面里只有「底板 + 一个字形」
 
-⚠️ 为什么是满幅方形、而不是 Codex 那种「透明背景 + 有机云朵」
-   macOS 26 起系统接管图标外形：asset 里带透明的图标会被塞进一张系统生成的
-   浅灰「玻璃底板」上（实测 NSWorkspace 解析出来的就是灰底 + 小紫花），既难看
-   又失去深色对比。要拿到正常的圆角方板，必须自己铺满整张画布（full-bleed），
-   让系统只做 squircle 遮罩与高光，不再补底板。
-   实测代价：有机轮廓（Codex 最显眼的特征）必须让位给满幅底板；保住的是渐变、
-   白色字形与零装饰，以及「大圆点 = 认知节点」这个自有识别点。
-   另外底色不能太浅：白字压在 #CDBEFF 上，16px 直接糊成一片（对比度约 1.6:1）。
-   现在顶部 #9484FF，白字对比度约 3.3:1，16px 仍能读出箭头。
+自有识别点（不照抄 ChatGPT 的结）
+  - 字形是「> 提示符 + 实心圆点（认知节点）」，对应 CogniTerm 的终端 + 节点语义
+  - 圆点与箭头分离、等重，缩小后不会糊成一个疙瘩（16/32px 另出简化版，去掉圆点）
+
+⚠️ 为什么底板必须满幅（而不是像 ChatGPT 那样只画一个圆角方板）
+   macOS 26 起系统接管图标外形：asset 带透明 → 系统补一张浅灰玻璃底板，图标会发灰。
+   满幅铺白后系统只做 squircle 遮罩 + 高光，结果就是 ChatGPT 那种白板效果。
+   PNG 也必须**不带 alpha 通道**。
 
 用法（需要本机装有 Google Chrome，用它逐尺寸直渲，避免位图缩放损失）：
     /Users/Admin/.workbuddy/binaries/python/envs/default/bin/python docs/brand/make-app-icon.py
@@ -31,55 +29,98 @@ ASSET_DIR = os.path.join(ROOT, "App/Resources/Assets.xcassets/AppIcon.appiconset
 SVG_DIR = os.path.join(ROOT, "docs/brand")
 CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-GRADIENT = (("#9484FF", 0.0), ("#6559FF", 0.46), ("#2A1DB8", 1.0))
-
-# 字形：> 提示符（圆头圆角）+ 认知节点。整体绕画布中心放大 1.10，
-# 让标识在满幅底板里占到约 45% 宽度（系统还会再内缩一圈做 squircle）。
 CHEVRON = "M 366 372 L 504 512 L 366 652"
-STROKE = 108
-NODE = (650, 512, 66)
-GLYPH_TRANSFORM = "translate(512,512) scale(1.10) translate(-514,-512)"
+NODE = (654, 512, 68)
 
-# (文件名, 像素尺寸)
+# (文件名, 像素尺寸, 是否简化字形)
 SLOTS = [
-    ("icon_16x16.png", 16),
-    ("icon_16x16@2x.png", 32),
-    ("icon_32x32.png", 32),
-    ("icon_32x32@2x.png", 64),
-    ("icon_128x128.png", 128),
-    ("icon_128x128@2x.png", 256),
-    ("icon_256x256.png", 256),
-    ("icon_256x256@2x.png", 512),
-    ("icon_512x512.png", 512),
-    ("icon_512x512@2x.png", 1024),
+    ("icon_16x16.png", 16, True),
+    ("icon_16x16@2x.png", 32, True),
+    ("icon_32x32.png", 32, True),
+    ("icon_32x32@2x.png", 64, False),
+    ("icon_128x128.png", 128, False),
+    ("icon_128x128@2x.png", 256, False),
+    ("icon_256x256.png", 256, False),
+    ("icon_256x256@2x.png", 512, False),
+    ("icon_512x512.png", 512, False),
+    ("icon_512x512@2x.png", 1024, False),
 ]
 
-
-def svg():
-    stops = "\n".join('      <stop offset="%s" stop-color="%s"/>' % (offset, color)
-                      for color, offset in GRADIENT)
-    return """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+HEAD = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <title>CogniTerm</title>
-  <desc>Full-bleed violet gradient plate with a white terminal prompt and an agent node.</desc>
+  <desc>Near-white plate with a charcoal prompt chevron and an agent node.</desc>
   <defs>
     <linearGradient id="plate" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
-%s
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.55" stop-color="#FAFAFB"/>
+      <stop offset="1" stop-color="#ECECF0"/>
     </linearGradient>
-    <radialGradient id="glow" cx="320" cy="240" r="600" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
-      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0.04"/>
-      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
-    </radialGradient>
+    <linearGradient id="ink" x1="512" y1="300" x2="512" y2="770" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3A3F52"/>
+      <stop offset="0.40" stop-color="#1D212B"/>
+      <stop offset="1" stop-color="#0A0C12"/>
+    </linearGradient>
+    <filter id="cast" x="-40%%" y="-40%%" width="180%%" height="190%%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0A0C12" flood-opacity="0.18"/>
+    </filter>
+    <filter id="blur" x="-40%%" y="-40%%" width="180%%" height="190%%">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+    <mask id="inkMask"><rect width="1024" height="1024" fill="#000"/>%(white)s</mask>
   </defs>
   <rect width="1024" height="1024" fill="url(#plate)"/>
-  <rect width="1024" height="1024" fill="url(#glow)"/>
-  <g transform="%s">
-    <path d="%s" fill="none" stroke="#FFFFFF" stroke-width="%d"
-          stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="%d" cy="%d" r="%d" fill="#FFFFFF"/>
+  <g transform="translate(512,512) scale(%(scale)s) translate(-514,-512)">
+    <g filter="url(#cast)">%(ink)s</g>
+    <g mask="url(#inkMask)">
+      <g filter="url(#blur)" opacity="0.40">
+        <path d="M 372 352 L 506 488 L 372 624" fill="none" stroke="#B9C0D2"
+              stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+        %(glow_node)s
+      </g>
+      <g filter="url(#blur)" opacity="0.26" transform="translate(0,30)">
+        <path d="%(chevron)s" fill="none" stroke="#0A0C12" stroke-width="24"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </g>
   </g>
 </svg>
-""" % (stops, GLYPH_TRANSFORM, CHEVRON, STROKE, NODE[0], NODE[1], NODE[2])
+"""
+
+
+def glyph(color_stroke, color_fill, stroke, node):
+    markup = ('<path d="%s" fill="none" stroke="%s" stroke-width="%d" '
+              'stroke-linecap="round" stroke-linejoin="round"/>'
+              % (CHEVRON, color_stroke, stroke))
+    if node:
+        markup += '<circle cx="%d" cy="%d" r="%d" fill="%s"/>' % (
+            NODE[0], NODE[1], NODE[2], color_fill)
+    return markup
+
+
+def svg(compact):
+    """compact=True 时只留加粗的箭头（16/32px 用），否则箭头 + 认知节点。"""
+    if compact:
+        scale, stroke, node = 1.34, 120, False
+        glow_node = ""
+    else:
+        scale, stroke, node = 1.34, 112, True
+        glow_node = ('<circle cx="%d" cy="488" r="50" fill="#B9C0D2"/>' % NODE[0])
+    return HEAD % {
+        "white": glyph("#FFFFFF", "#FFFFFF", stroke, node),
+        "ink": glyph("url(#ink)", "url(#ink)", stroke, node),
+        "scale": scale,
+        "glow_node": glow_node,
+        "chevron": CHEVRON,
+    }
+
+
+def flatten(path):
+    """去掉 alpha 通道：带 alpha 的图标在 macOS 26 仍会被判定为「无底板」而补灰底。"""
+    try:
+        from PIL import Image
+    except ImportError:
+        return
+    Image.open(path).convert("RGB").save(path)
 
 
 def render(path, size, markup):
@@ -103,25 +144,18 @@ def render(path, size, markup):
     flatten(path)
 
 
-def flatten(path):
-    """去掉 alpha 通道：带 alpha 的图标在 macOS 26 仍会被判定为「无底板」而补灰底。"""
-    try:
-        from PIL import Image
-    except ImportError:
-        return
-    Image.open(path).convert("RGB").save(path)
-
-
 def main():
     if not os.path.exists(CHROME):
         sys.exit("找不到 Google Chrome：%s" % CHROME)
     os.makedirs(SVG_DIR, exist_ok=True)
     with open(os.path.join(SVG_DIR, "app-icon.svg"), "w") as handle:
-        handle.write(svg())
+        handle.write(svg(compact=False))
+    with open(os.path.join(SVG_DIR, "app-icon-small.svg"), "w") as handle:
+        handle.write(svg(compact=True))
     os.makedirs(ASSET_DIR, exist_ok=True)
-    for name, size in SLOTS:
-        render(os.path.join(ASSET_DIR, name), size, svg())
-        print("%-22s %4dpx" % (name, size))
+    for name, size, compact in SLOTS:
+        render(os.path.join(ASSET_DIR, name), size, svg(compact))
+        print("%-22s %4dpx%s" % (name, size, "  (简化字形)" if compact else ""))
 
 
 if __name__ == "__main__":
