@@ -23,6 +23,8 @@
 		BF100000000000000000A017 /* TerminalMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A017 /* TerminalMCPServer.swift */; };
 		BF100000000000000000A018 /* SessionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A018 /* SessionManager.swift */; };
 		BF100000000000000000A019 /* NewSSHSessionSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A019 /* NewSSHSessionSheet.swift */; };
+		BF100000000000000000A021 /* TerminalTabBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A021 /* TerminalTabBar.swift */; };
+		BF100000000000000000A020 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A020 /* SidebarView.swift */; };
 		BF100000000000000000A00F /* no-telemetry.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00F /* no-telemetry.yml */; };
 		BF100000000000000000A014 /* cogniterm-core.patch.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A015 /* cogniterm-core.patch.yml */; };
 		BF100000000000000000A010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A010 /* Assets.xcassets */; };
@@ -62,6 +64,8 @@
 		FR100000000000000000A017 /* TerminalMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMCPServer.swift; sourceTree = "<group>"; };
 		FR100000000000000000A018 /* SessionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManager.swift; sourceTree = "<group>"; };
 		FR100000000000000000A019 /* NewSSHSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSSHSessionSheet.swift; sourceTree = "<group>"; };
+		FR100000000000000000A021 /* TerminalTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabBar.swift; sourceTree = "<group>"; };
+		FR100000000000000000A020 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00F /* no-telemetry.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = no-telemetry.yml; sourceTree = "<group>"; };
 		FR100000000000000000A015 /* cogniterm-core.patch.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = cogniterm-core.patch.yml; sourceTree = "<group>"; };
 		FR100000000000000000A010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -164,6 +168,8 @@
 				FR100000000000000000A012 /* OnboardingView.swift */,
 				FR100000000000000000A013 /* SessionReplayView.swift */,
 				FR100000000000000000A019 /* NewSSHSessionSheet.swift */,
+				FR100000000000000000A021 /* TerminalTabBar.swift */,
+				FR100000000000000000A020 /* SidebarView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -358,6 +364,8 @@
 				BF100000000000000000A017 /* TerminalMCPServer.swift in Sources */,
 				BF100000000000000000A018 /* SessionManager.swift in Sources */,
 				BF100000000000000000A019 /* NewSSHSessionSheet.swift in Sources */,
+				BF100000000000000000A021 /* TerminalTabBar.swift in Sources */,
+				BF100000000000000000A020 /* SidebarView.swift in Sources */,
 				BF100000000000000000A004 /* DemoPeer.swift in Sources */,
 				BF100000000000000000A005 /* ConversationModel.swift in Sources */,
 				BF100000000000000000A006 /* MainSplitView.swift in Sources */,

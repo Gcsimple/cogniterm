@@ -1133,12 +1133,12 @@ struct TerminalPanel: View {
 
     private var toolbar: some View {
         HStack(spacing: 4) {
-            Label(session.terminalTitle.isEmpty ? session.defaultTitle : session.terminalTitle,
-                  systemImage: session.kind == .ssh ? "network" : (session.bellActive ? "bell.fill" : "terminal"))
-                .font(.caption.bold())
+            // 会话身份已经由上方标签栏（TerminalTabBar）承担，这里不再重复
+            // 「本地 shell / user@host」——只留「跑的是什么 shell、在哪个目录」，
+            // 也就是标签栏答不出来的那部分。
+            Image(systemName: session.kind == .ssh ? "network" : (session.bellActive ? "bell.fill" : "terminal"))
+                .font(.caption2)
                 .foregroundStyle(session.bellActive ? Color.orange : (session.kind == .ssh ? Color.blue : Color.secondary))
-                .lineLimit(1)
-                .truncationMode(.middle)
                 .help(toolbarHelp)
 
             Text(session.statusText)
