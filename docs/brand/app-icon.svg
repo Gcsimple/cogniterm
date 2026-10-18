@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>CogniTerm</title>
+  <desc>Full-bleed violet gradient plate with a white terminal prompt and an agent node.</desc>
+  <defs>
+    <linearGradient id="plate" x1="512" y1="0" x2="512" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0.0" stop-color="#9484FF"/>
+      <stop offset="0.46" stop-color="#6559FF"/>
+      <stop offset="1.0" stop-color="#2A1DB8"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="320" cy="240" r="600" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+      <stop offset="0.6" stop-color="#FFFFFF" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#plate)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <g transform="translate(512,512) scale(1.10) translate(-514,-512)">
+    <path d="M 366 372 L 504 512 L 366 652" fill="none" stroke="#FFFFFF" stroke-width="108"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="650" cy="512" r="66" fill="#FFFFFF"/>
+  </g>
+</svg>
