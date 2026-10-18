@@ -137,13 +137,20 @@ public final class ProcessTransport: RPCTransport, @unchecked Sendable {
 /// 内存回环通道：测试用。对每条写入同步产生 0..n 条应答；测试也可主动 push 服务端请求/通知。
 public final class LoopbackTransport: RPCTransport, @unchecked Sendable {
     public var onEnded: (() -> Void)?
-    public private(set) lazy var lines: AsyncStream<Data> = makeLinesStream()
+    public let lines: AsyncStream<Data>
 
     /// 脚本化对端：收到一行 JSON，返回需要回复的行（可为空）。
     public var responder: ((Data) -> [Data])?
     private var continuation: AsyncStream<Data>.Continuation?
 
-    public init() {}
+    public init() {
+        // 流与续体在 init 时一次性建好：lazy 化会让 writeLine/push 在
+        // 分帧泵首次迭代 lines 之前静默丢帧（continuation 尚为 nil），
+        // 表现为请求永久挂起。eager 初始化从根上消除该竞态。
+        var cont: AsyncStream<Data>.Continuation!
+        lines = AsyncStream { cont = $0 }
+        continuation = cont
+    }
 
     public func open() throws { /* 内存通道无需启动 */ }
 
@@ -165,12 +172,6 @@ public final class LoopbackTransport: RPCTransport, @unchecked Sendable {
     /// 便捷：推一条 JSON 编码对象。
     public func pushJSON<T: Encodable>(_ value: T, encoder: JSONEncoder = .acp) throws {
         push(try encoder.encode(value))
-    }
-
-    private func makeLinesStream() -> AsyncStream<Data> {
-        AsyncStream { [weak self] cont in
-            self?.continuation = cont
-        }
     }
 
     private func finish() {

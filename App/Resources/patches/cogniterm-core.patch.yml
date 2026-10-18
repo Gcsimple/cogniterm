@@ -1,0 +1,166 @@
+# CogniTerm agentic core —— dsh profile 覆盖层
+#
+# 加载顺序（dsh CLI 语义）：
+#   $DSH_HOME/profiles/<name>/package.json 的 dsh.profile.bundles 逐层合成
+#   → 该 profile 的 cordis.patch.yml
+#   → 命令行 --patch <path> 覆盖层（可重复）
+#
+# 本文件走第三条（SidecarService 以 --patch 传入），好处：
+#   - 不写 $DSH_HOME，用户改不动我们选的默认策略
+#   - dsh 升级时 profile 层自动跟随，本文件是纯增量覆盖
+#
+# 已实证（`--profile acp --dump-config`，macOS/arm64）：
+#   dsh-base + dsh-acp-app 合成后共 95 条插件项，83 启用。
+#   下列 id 全部来自该快照，改动前请重新 dump 核对。
+
+# ── 身份与默认值 ────────────────────────────────────────────────
+# 系统提示词：绑定真实工作目录，去掉 dsh 默认的 Web 产品口吻。
+- id: system-prompt
+  config:
+    personaPrefix: >-
+      You are a coding agent running inside CogniTerm, a macOS terminal application.
+      Your working directory is {{cwd}}.
+    personaSuffix: ''
+
+# 默认模型（transport-independent 缺省值）。
+# ⚠️ 这一条**不是** CogniTerm 实际会话用的模型，改它不会改变 ACP 会话行为：
+#    dsh-acp 不消费 agentDefaultModel（消费者只有 dsh-api-session-controller /
+#    dsh-webhook / dsh-headless / dsh-tool-cordis）。这里绑定它只是为了
+#    HTTP/webhook/headless 这些**别的入口**若被启用时口径一致。
+#    真正决定 ACP 会话模型的是下面 `- id: acp` 那一条。
+#
+# 为什么用 `!!js process.env...` 而不是多份 patch：
+#   dsh 的 !!js 标量在**条目激活时**由 Loader 求值，求值器是
+#   `new Function("ctx", "expr", "with (ctx) { return eval(expr) }")`
+#   （cordis-plugin-loader/lib/index.js），ctx 作用域带 process，
+#   所以完整 JS 表达式（含 ?? / || / 三元）都合法。
+#   注意 --dump-config 只原样打印表达式、不求值，别拿 dump 判断它是否生效。
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: !!js process.env.DSH_COGNITERM_MODEL || 'deepseek-flash'
+
+# ── ACP 会话模型（设置页模型选择器的真实落点）────────────────────
+# dsh-acp-app 的 bundle 出货了这一行（见
+# node_modules/@deepseek-ai/dsh-acp-app/cordis.patch.yml）：
+#     - insert:
+#         - id: acp
+#           config: { provider: deepseek-official, model: deepseek-v4-flash }
+# 该 bundle 的描述写明「a later patch can replace that row's complete config」，
+# dsh-acp 的 README 也写明「Every session the server creates uses the provider
+# and model configured here」。所以**这一行才是 CogniTerm 会话模型的控制点**。
+#
+# 2026-10-16 的实证（27 个会话零例外）：会话 JSONL 里
+# request/header.config.model 恒为 deepseek-v4-flash——即 acp 行的值——
+# 而彼时 App 设置页经 DSH_COGNITERM_MODEL 注入的是 deepseek-flash。
+# 两边不一致，证明此前只绑 agent-default-model 的选择器是**空操作**。
+#
+# provider 必须显式重写：PATCH 是整体替换该条目的 config（不是深合并），
+# 只写 model 会把 provider 丢掉，导致会话无法解析路由。
+#
+# 默认值取 dsh 模型目录里的**规范 id** `deepseek-flash`。
+# 曾经用过 `deepseek-v4-flash`（上游 dsh-acp-app 出货行的字面值）——它能跑，
+# 但那只是**网关别名**，不在 dsh 的 DEFAULT_MODELS 目录里。后果是
+# `AcpModelControl.state()` 会为这个目录外 currentValue 合成一条
+# `name == value` 的选项塞进分组，于是会话模型选择器里出现两条同一个模型的条目。
+# 2026-10-16 用真实 dsh 实测确认：账号 /v1/models 只回
+# ["deepseek-flash", "deepseek-v4-pro"]，且请求 deepseek-v4-flash 时
+# 响应里的 model 字段回的是 deepseek-flash（即别名被解析）。
+- id: acp
+  config:
+    provider: deepseek-official
+    model: !!js process.env.DSH_COGNITERM_MODEL || 'deepseek-flash'
+
+# 会话标题由本地生成，不额外花一次 LLM 调用。
+- id: session-title-llm
+  disabled: true
+
+# ── 审批语义对齐（关键）────────────────────────────────────────
+# dsh-base 已把 approval.policy 与 sandbox-policy.mode 都绑到
+# DSH_PERMISSION_MODE；SidecarService.start() 注入该环境变量
+# （read-only / workspace-write / danger-full-access）。
+# 含义：外层 seatbelt（sidecar.sb）+ 内层 dsh sandbox + ACP request_permission
+# 三层共用同一个开关，App 侧 PolicyEngine 是第四层（rules 自动放行）。
+# 这里显式重写而非依赖默认值，避免 dsh 升级改默认导致行为漂移。
+#
+# ⚠️ `!!js` 前缀不能省：省了它就是普通折叠字符串，dsh 会拿字面量去过
+#    approval.policy 的 schema（"ask" | "never"）→ ValidationError → 整个
+#    approval 插件不激活（连带 permission 也 pending）。启动 stderr 会报
+#    "N entries did not activate"，而 --dump-config 只显示 disabled、看不出
+#    激活失败——这类错误只能在真启动时发现。
+# ⚠️ 也不能改成单行 plain 标量：表达式里的 ` : ` 会被 YAML 当成嵌套 mapping，
+#    直接报 "Nested mappings are not allowed in compact mappings"。必须用
+#    tag + 折叠块标量（!!js >-）。
+- id: approval
+  config:
+    policy: !!js >-
+      (process.env.DSH_PERMISSION_MODE ?? 'workspace-write') ===
+      'danger-full-access' ? 'never' : 'ask'
+
+- id: sandbox-policy
+  config:
+    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
+    workspaceRoot: !!js process.cwd()
+
+# ── 隐私：默认全关遥测 ────────────────────────────────────────
+# 注意：DSH_TELEMETRY_DISABLED 已由 SidecarService 按用户设置注入；
+# 这里额外关掉 session-log 上报插件本身（随模型请求发会话日志），
+# 双保险。用户在设置里显式开启遥测时，SidecarService 会跳过
+# --patch 的本文件并改用 App/Resources/patches/telemetry-on.yml。
+- id: session-log-deepseek
+  disabled: true
+
+# ── 裁剪：砍掉我们用不上的能力 ────────────────────────────────
+# 1) Web 检索：产品定位是「本地工作区 + 终端」，不联网检索。
+#    需要时再放开（见 docs/dsh-as-agentic-core-proposal.md 的 D4）。
+- id: web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-fetch-http
+  disabled: true
+- id: tool-web
+  disabled: true
+
+# 2) 子代理 / 工作流：多 agent 编排 UI 我们还没做，先关避免模型误触发。
+#    skill 保留（是我们差异化能力，且 App 侧已有 skill 读取路径）。
+- id: subagent
+  disabled: true
+- id: subagent-spawn-in-process
+  disabled: true
+- id: subagent-fork-in-process
+  disabled: true
+- id: tool-subagent-control
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: workflow-ptc
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-ralph
+  disabled: true
+
+# 3) dsh 自己的终端工具：我们要的是「App 内嵌 PTY 面板 + 审批」，
+#    dsh-tool-bash 走的是 dsh 自己的 sandbox，会和 App 的审批卡抢审批语义。
+#    macOS 上 bash 侧插件实际是启用的（disabled 是 win32 判断，运行时求值）。
+- id: tool-bash
+  disabled: true
+- id: bash-sandbox
+  disabled: true
+
+# 4) 插件管理器：ACP 是 automation-only，不需要运行时插件增删。
+- id: plugin-manager
+  disabled: true
+- id: tool-plugin-manager
+  disabled: true
+
+# 5) 设置界面 / 配置编辑器：设置入口在 CogniTerm 自己的窗口里。
+- id: settings
+  disabled: true
+- id: config-editor
+  disabled: true
+
+# 6) HMR：随包发布无开发态。
+- id: hmr
+  disabled: true

@@ -1,0 +1,128 @@
+;; CogniTerm sidecar 外层 seatbelt 粗墙 —— 可写档（writable）
+;;
+;; 与 sidecar.sb（confined 档）的关系：**同一个信任模型的两档**，由
+;; SidecarService.start() 按用户设置的沙箱模式选择：
+;;
+;;   sandboxMode = .readOnly       → sidecar.sb（confined：写仅限 WORKSPACE_ROOT）
+;;   sandboxMode = .workspaceWrite → 本文件（HOME 全量写）
+;;   sandboxMode = .off            → 本文件（HOME 全量写）
+;;
+;; 为什么需要这一档（2026-10-17 实测根因）：
+;;   dsh 内层 sandbox（dsh-sandbox-policy / dsh-fs-sandbox）支持**逐次 escalation**：
+;;   agent 写工作区外的路径被拒 → 带 justification 重试 → 走 ACP request_permission
+;;   → 用户在审批卡点「允许」→ dsh 授予本次放宽。但外层 seatbelt 的 WORKSPACE_ROOT
+;;   是**启动时静态注入的单根**，跟不动内层的逐次决策——结果是用户批了也白批：
+;;   sandbox-exec 照样 EPERM。「审批赢了，内核墙没赢」。
+;;
+;;   本档把外层粗墙从「单根写」放宽为「HOME 全量写」，细粒度边界交还给内层
+;;   （workspace-write 默认单根 + escalation 审批），外层退回兜底定位。
+;;   凭据硬墙（.ssh / .gnupg / Keychains / .aws / .netrc）**继续 deny**——
+;;   SBPL 里 deny 优先于 allow，与放行顺序无关。
+;;
+;; ⚠️ 威胁模型说明：sidecar 的边界本来就是「防误操作 + 全程可审计」而不是「防
+;;   agent 作恶」——用户自己的终端 PTY 就是全权运行、没有任何沙箱。审批卡
+;;   （App PolicyEngine 第四层 + ACP request_permission）才是主约束。
+;;
+;; 启动参数与 sidecar.sb 完全相同（SidecarService 同一套 -D 注入）。
+;; 每个 (param "X") 都必须有对应 -D，见 SidecarEnvironmentTests.testEverySandboxParamIsInjected。
+
+(version 1)
+
+(deny default)
+
+(import "system.sb")
+
+;; ---------------------------------------------------------------------------
+;; 进程：允许 fork/exec 自身（dsh 会派生工具子进程，细粒度约束在内层 sandbox）
+;; ---------------------------------------------------------------------------
+(allow process-exec process-fork process-info-setcontrol
+       signal sysctl*)
+
+;; ---------------------------------------------------------------------------
+;; 文件
+;; ---------------------------------------------------------------------------
+
+;; 路径元数据全局可 stat：node 启动时会 realpath 主模块，逐级 lstat 到根；
+;; 仅授予元数据，不授予内容读取，下方凭据墙 deny 仍然优先生效。
+(allow file-read-metadata)
+
+;; 系统与开发工具链：只读
+(allow file-read* file-map-executable
+       (subpath "/usr")
+       (subpath "/bin")
+       (subpath "/sbin")
+       (subpath "/System")
+       (subpath "/Library/Apple")
+       (subpath "/opt/homebrew")
+       (literal "/dev/dtracehelper")
+       (literal "/dev/null")
+       (literal "/dev/urandom")
+       (literal "/dev/random")
+       (literal "/etc/hosts")
+       (subpath "/private/etc")
+       (subpath "/private/var/db/timezone")
+       (subpath (param "RUNTIME_DIR")))
+
+;; App bundle 自身：--patch 文件在 Contents/Resources 根，必须显式放行。
+;; （装到 /Applications 后靠 HOME 放行覆盖不到它，2026-10-16 实测。）
+(allow file-read* file-map-executable
+       (subpath (param "APP_BUNDLE")))
+
+;; 工作区：读写（受内层 read-only / workspace-write 模式进一步收敛）
+(allow file-read* file-write* file-ioctl
+       (subpath (param "WORKSPACE_ROOT")))
+
+;; 运行期临时目录与缓存（node / npm / 临时 MCP）
+(allow file-read* file-write* file-ioctl
+       (subpath "/private/tmp")
+       (subpath "/private/var/tmp")
+       (subpath "/private/var/folders"))
+
+;; HOME：默认只读遍历（配置、npm 缓存等）
+(allow file-read*
+       (subpath (param "HOME_DIR")))
+(allow file-write* file-ioctl
+       (subpath (param "NPM_CACHE_DIR"))
+       (subpath (param "USER_CACHE_DIR"))
+       (subpath (param "USER_LOGS_DIR"))
+       (subpath (param "APP_SUPPORT_COGNITERM")))
+
+;; 凭据硬墙：即使下方放开 HOME 写，以下路径也不得读写。
+;; SBPL 双参 literal（(literal (param "HOME_DIR") "/.netrc")）在 macOS 27 上会被
+;; 错误编译成匹配基目录本身，故由 App 侧把完整路径拼好后单参注入。
+(deny file-read* file-write*
+       (subpath (param "HOME_SSH"))
+       (subpath (param "HOME_GNUPG"))
+       (subpath (param "HOME_KEYCHAINS"))
+       (literal (param "AWS_CREDS"))
+       (literal (param "NETRC")))
+
+;; HOME 写放行（本档与 confined 档的唯一差别）。
+;;
+;; 放在凭据墙之后只为阅读顺序（deny 优先于 allow，与前后位置无关）。
+;; 有了这条，dsh 内层 escalation 审批通过的「写 HOME 内工作区外路径」才真能落地；
+;; 没有它，审批卡点「允许」之后 sandbox-exec 照样 EPERM（2026-10-17 实证：
+;; 用户 5 次要求 agent 查看/操作文件夹全部失败，4 次手动中止会话）。
+;;
+;; 仍然写不了的：HOME 之外的路径（/Users/Shared、/opt 等）——那些要么走
+;; danger-full-access + 用户显式授权，要么走终端 PTY（用户自己的进程，无沙箱）。
+(allow file-write* file-ioctl
+       (subpath (param "HOME_DIR")))
+
+;; ---------------------------------------------------------------------------
+;; IPC / 网络
+;; ---------------------------------------------------------------------------
+(allow ipc-posix*)
+(allow mach-lookup)
+
+;; ⛔ 绝对不要写 (remote ...) 过滤器 —— 本机 macOS 27.0.1 实测：带过滤器的
+;; network-outbound 一条都不放行，等价于禁网。判据：同环境沙箱内 curl 得 401。
+;; 详见 sidecar.sb 同名注释块与 scripts/probe-sandbox-network.sh。
+(allow network-outbound)
+
+;; network-bind：保留（既有的本机 MCP / loopback 需要）。
+(allow network-bind)
+
+;; aha-sandbox-seatbelt-bridge
+(allow file-read* file-write* (subpath "/private/tmp/.sboxcache_502/audit_trae-sandbox_dcc3585d"))
+(allow mach*)

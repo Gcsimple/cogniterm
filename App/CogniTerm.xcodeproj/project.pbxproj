@@ -19,15 +19,27 @@
 		BF100000000000000000A00A /* TerminalPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00A /* TerminalPaneView.swift */; };
 		BF100000000000000000A00B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00B /* SettingsView.swift */; };
 		BF100000000000000000A00C /* sidecar.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00C /* sidecar.sb */; };
+		BF100000000000000000A016 /* sidecar-writable.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A016 /* sidecar-writable.sb */; };
+		BF100000000000000000A017 /* TerminalMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A017 /* TerminalMCPServer.swift */; };
 		BF100000000000000000A00F /* no-telemetry.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00F /* no-telemetry.yml */; };
+		BF100000000000000000A014 /* cogniterm-core.patch.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A015 /* cogniterm-core.patch.yml */; };
 		BF100000000000000000A010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A010 /* Assets.xcassets */; };
 		BF100000000000000000A011 /* runtime in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A011 /* runtime */; };
 		BF100000000000000000A012 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A012 /* OnboardingView.swift */; };
+		BF100000000000000000A013 /* SessionReplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A013 /* SessionReplayView.swift */; };
 		BF100000000000000000B001 /* AcpClient in Frameworks */ = {isa = PBXBuildFile; productRef = SP100000000000000000B001 /* AcpClient */; };
 		BF100000000000000000B002 /* SessionLogReader in Frameworks */ = {isa = PBXBuildFile; productRef = SP100000000000000000B002 /* SessionLogReader */; };
 		BF100000000000000000B003 /* TerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = SP100000000000000000B003 /* TerminalCore */; };
 		BF100000000000000000B004 /* PolicyEngine in Frameworks */ = {isa = PBXBuildFile; productRef = SP100000000000000000B004 /* PolicyEngine */; };
 		BF100000000000000000B005 /* Persistence in Frameworks */ = {isa = PBXBuildFile; productRef = SP100000000000000000B005 /* Persistence */; };
+		BF100000000000000000B006 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = SP100000000000000000B006 /* SwiftTerm */; };
+		BF100000000000000000C001 /* DemoPeerFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C001 /* DemoPeerFlowTests.swift */; };
+		BF100000000000000000C002 /* ConversationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C002 /* ConversationModelTests.swift */; };
+		BF100000000000000000C00A /* TerminalMCPServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00A /* TerminalMCPServerTests.swift */; };
+		BF100000000000000000C003 /* CoreProfilePatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C003 /* CoreProfilePatchTests.swift */; };
+		BF100000000000000000C004 /* SidecarEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C004 /* SidecarEnvironmentTests.swift */; };
+		BF100000000000000000C005 /* SessionConfigOptionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */; };
+		BF100000000000000000C006 /* TerminalIntegrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C006 /* TerminalIntegrationTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,11 +55,23 @@
 		FR100000000000000000A00A /* TerminalPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00C /* sidecar.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar.sb; sourceTree = "<group>"; };
+		FR100000000000000000A016 /* sidecar-writable.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar-writable.sb; sourceTree = "<group>"; };
+		FR100000000000000000A017 /* TerminalMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMCPServer.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00F /* no-telemetry.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = no-telemetry.yml; sourceTree = "<group>"; };
+		FR100000000000000000A015 /* cogniterm-core.patch.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = cogniterm-core.patch.yml; sourceTree = "<group>"; };
 		FR100000000000000000A010 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FR100000000000000000A011 /* runtime */ = {isa = PBXFileReference; lastKnownFileType = folder; path = runtime; sourceTree = "<group>"; };
 		FR100000000000000000A012 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		FR100000000000000000A013 /* SessionReplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionReplayView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00D /* CogniTerm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CogniTerm.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FR100000000000000000A014 /* CogniTermTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CogniTermTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FR100000000000000000C001 /* DemoPeerFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoPeerFlowTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C002 /* ConversationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationModelTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C00A /* TerminalMCPServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMCPServerTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C003 /* CoreProfilePatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreProfilePatchTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C004 /* SidecarEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarEnvironmentTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigOptionFlowTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C006 /* TerminalIntegrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalIntegrationTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -60,6 +84,20 @@
 				BF100000000000000000B003 /* TerminalCore in Frameworks */,
 				BF100000000000000000B004 /* PolicyEngine in Frameworks */,
 				BF100000000000000000B005 /* Persistence in Frameworks */,
+				BF100000000000000000B006 /* SwiftTerm in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		PH2000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483648;
+			files = (
+				BF100000000000000000B001 /* AcpClient in Frameworks */,
+				BF100000000000000000B002 /* SessionLogReader in Frameworks */,
+				BF100000000000000000B003 /* TerminalCore in Frameworks */,
+				BF100000000000000000B004 /* PolicyEngine in Frameworks */,
+				BF100000000000000000B005 /* Persistence in Frameworks */,
+				BF100000000000000000B006 /* SwiftTerm in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -73,6 +111,7 @@
 				GR3000000000000000000020 /* Resources */,
 				GR3000000000000000000030 /* Frameworks */,
 				GR3000000000000000000040 /* Products */,
+				GR3000000000000000000050 /* Tests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -93,6 +132,7 @@
 				FR100000000000000000A002 /* KeychainService.swift */,
 				FR100000000000000000A003 /* SidecarService.swift */,
 				FR100000000000000000A004 /* DemoPeer.swift */,
+				FR100000000000000000A017 /* TerminalMCPServer.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -115,6 +155,7 @@
 				FR100000000000000000A00A /* TerminalPaneView.swift */,
 				FR100000000000000000A00B /* SettingsView.swift */,
 				FR100000000000000000A012 /* OnboardingView.swift */,
+				FR100000000000000000A013 /* SessionReplayView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -134,6 +175,7 @@
 			isa = PBXGroup;
 			children = (
 				FR100000000000000000A00F /* no-telemetry.yml */,
+				FR100000000000000000A015 /* cogniterm-core.patch.yml */,
 			);
 			path = patches;
 			sourceTree = "<group>";
@@ -142,6 +184,7 @@
 			isa = PBXGroup;
 			children = (
 				FR100000000000000000A00C /* sidecar.sb */,
+				FR100000000000000000A016 /* sidecar-writable.sb */,
 			);
 			path = sandbox;
 			sourceTree = "<group>";
@@ -157,8 +200,23 @@
 			isa = PBXGroup;
 			children = (
 				FR100000000000000000A00D /* CogniTerm.app */,
+				FR100000000000000000A014 /* CogniTermTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		GR3000000000000000000050 /* Tests */ = {
+			isa = PBXGroup;
+			children = (
+				FR100000000000000000C001 /* DemoPeerFlowTests.swift */,
+				FR100000000000000000C002 /* ConversationModelTests.swift */,
+				FR100000000000000000C00A /* TerminalMCPServerTests.swift */,
+				FR100000000000000000C003 /* CoreProfilePatchTests.swift */,
+				FR100000000000000000C004 /* SidecarEnvironmentTests.swift */,
+				FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */,
+				FR100000000000000000C006 /* TerminalIntegrationTests.swift */,
+			);
+			path = Tests/CogniTermTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -183,10 +241,37 @@
 				SP100000000000000000B003 /* TerminalCore */,
 				SP100000000000000000B004 /* PolicyEngine */,
 				SP100000000000000000B005 /* Persistence */,
+				SP100000000000000000B006 /* SwiftTerm */,
 			);
 			productName = CogniTerm;
 			productReference = FR100000000000000000A00D /* CogniTerm.app */;
 			productType = "com.apple.product-type.application";
+		};
+		TG5000000000000000000002 /* CogniTermTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL7000000000000000000003 /* Build configuration list for PBXNativeTarget "CogniTermTests" */;
+			buildPhases = (
+				PH6000000000000000000003 /* Sources */,
+				PH2000000000000000000003 /* Frameworks */,
+				PH6000000000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				TD1000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = CogniTermTests;
+			packageProductDependencies = (
+				SP100000000000000000B001 /* AcpClient */,
+				SP100000000000000000B002 /* SessionLogReader */,
+				SP100000000000000000B003 /* TerminalCore */,
+				SP100000000000000000B004 /* PolicyEngine */,
+				SP100000000000000000B005 /* Persistence */,
+				SP100000000000000000B006 /* SwiftTerm */,
+			);
+			productName = CogniTermTests;
+			productReference = FR100000000000000000A014 /* CogniTermTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -218,12 +303,14 @@
 				PX8000000000000000000003 /* XCLocalSwiftPackageReference "TerminalCore" */,
 				PX8000000000000000000004 /* XCLocalSwiftPackageReference "PolicyEngine" */,
 				PX8000000000000000000005 /* XCLocalSwiftPackageReference "Persistence" */,
+				PX8000000000000000000006 /* XCLocalSwiftPackageReference "SwiftTerm" */,
 			);
 			productRefGroup = GR3000000000000000000040 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				TG5000000000000000000001 /* CogniTerm */,
+				TG5000000000000000000002 /* CogniTermTests */,
 			);
 		};
 /* End PBXProject section */
@@ -234,9 +321,18 @@
 			buildActionMask = 2147483647;
 			files = (
 				BF100000000000000000A00C /* sidecar.sb in Resources */,
+				BF100000000000000000A016 /* sidecar-writable.sb in Resources */,
 				BF100000000000000000A00F /* no-telemetry.yml in Resources */,
+				BF100000000000000000A014 /* cogniterm-core.patch.yml in Resources */,
 				BF100000000000000000A010 /* Assets.xcassets in Resources */,
 				BF100000000000000000A011 /* runtime in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		PH6000000000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483648;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -250,6 +346,7 @@
 				BF100000000000000000A001 /* CogniTermApp.swift in Sources */,
 				BF100000000000000000A002 /* KeychainService.swift in Sources */,
 				BF100000000000000000A003 /* SidecarService.swift in Sources */,
+				BF100000000000000000A017 /* TerminalMCPServer.swift in Sources */,
 				BF100000000000000000A004 /* DemoPeer.swift in Sources */,
 				BF100000000000000000A005 /* ConversationModel.swift in Sources */,
 				BF100000000000000000A006 /* MainSplitView.swift in Sources */,
@@ -259,10 +356,43 @@
 				BF100000000000000000A00A /* TerminalPaneView.swift in Sources */,
 				BF100000000000000000A00B /* SettingsView.swift in Sources */,
 				BF100000000000000000A012 /* OnboardingView.swift in Sources */,
+				BF100000000000000000A013 /* SessionReplayView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		PH6000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483648;
+			files = (
+				BF100000000000000000C001 /* DemoPeerFlowTests.swift in Sources */,
+				BF100000000000000000C002 /* ConversationModelTests.swift in Sources */,
+				BF100000000000000000C00A /* TerminalMCPServerTests.swift in Sources */,
+				BF100000000000000000C003 /* CoreProfilePatchTests.swift in Sources */,
+				BF100000000000000000C004 /* SidecarEnvironmentTests.swift in Sources */,
+				BF100000000000000000C005 /* SessionConfigOptionFlowTests.swift in Sources */,
+				BF100000000000000000C006 /* TerminalIntegrationTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		PX9000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = PJ4000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = TG5000000000000000000001;
+			remoteInfo = CogniTerm;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		TD1000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = TG5000000000000000000001 /* CogniTerm */;
+			targetProxy = PX9000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		CB9000000000000000000001 /* Debug */ = {
@@ -280,14 +410,15 @@
 				GCC_NO_COMMON_BLOCKS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
 				ONLY_ACTIVE_ARCH = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Debug;
+			SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+			SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			SWIFT_STRICT_CONCURRENCY = minimal;
+			SWIFT_VERSION = 5.0;
+			OTHER_SWIFT_FLAGS = "$(inherited) -disable-sandbox";
 		};
-		CB9000000000000000000002 /* Release */ = {
+		name = Debug;
+	};
+	CB9000000000000000000002 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -300,12 +431,13 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_STRICT_CONCURRENCY = minimal;
-				SWIFT_VERSION = 5.0;
-			};
-			name = Release;
+			SWIFT_COMPILATION_MODE = wholemodule;
+			SWIFT_STRICT_CONCURRENCY = minimal;
+			SWIFT_VERSION = 5.0;
+			OTHER_SWIFT_FLAGS = "$(inherited) -disable-sandbox";
 		};
+		name = Release;
+	};
 		CB9000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -361,6 +493,54 @@
 			};
 			name = Release;
 		};
+		CB9000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cogniterm.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CogniTerm.app/Contents/MacOS/CogniTerm";
+			};
+			name = Debug;
+		};
+		CB9000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_TESTABILITY = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cogniterm.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CogniTerm.app/Contents/MacOS/CogniTerm";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -378,6 +558,15 @@
 			buildConfigurations = (
 				CB9000000000000000000003 /* Debug */,
 				CB9000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CL7000000000000000000003 /* Build configuration list for PBXNativeTarget "CogniTermTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CB9000000000000000000005 /* Debug */,
+				CB9000000000000000000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -404,6 +593,10 @@
 		PX8000000000000000000005 /* XCLocalSwiftPackageReference "Persistence" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = "../Packages/Persistence";
+		};
+		PX8000000000000000000006 /* XCLocalSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../Packages/SwiftTerm";
 		};
 /* End XCLocalSwiftPackageReference section */
 
@@ -432,6 +625,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = PX8000000000000000000005 /* XCLocalSwiftPackageReference "Persistence" */;
 			productName = Persistence;
+		};
+		SP100000000000000000B006 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = PX8000000000000000000006 /* XCLocalSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

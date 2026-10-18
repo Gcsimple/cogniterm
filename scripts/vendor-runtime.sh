@@ -93,4 +93,4 @@ log "冒烟：$( "$NODE_BIN" --version ) + dsh cli"
     || log "警告：dsh --version 未成功返回（CLI 入口可能不同，不影响 vendor）"
 
 DU="$(du -sh "$DEST" | awk '{print $1}')"
-log "完成：$DEST（$DU），构建时将随 .app 一并签名、拷贝。"
+log "完成：${DEST}（${DU}），构建时将随 .app 一并签名、拷贝。"

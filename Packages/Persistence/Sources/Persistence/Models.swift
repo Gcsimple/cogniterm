@@ -117,6 +117,37 @@ public enum SandboxMode: String, CaseIterable, Codable, Sendable {
     case off
 }
 
+/// 默认模型（经 `DSH_COGNITERM_MODEL` 注入，由 core patch 读进 dsh profile）。
+///
+/// ⚠️ 落点是 **`acp` 插件的 config**，不只是 `agent-default-model`：
+///    dsh-acp 并不消费 agentDefaultModel（消费者只有 dsh-api-session-controller /
+///    dsh-webhook / dsh-headless / dsh-tool-cordis），ACP 会话的模型由 `acp` 行的
+///    provider/model 决定。只绑 agent-default-model 会让选择器变成空操作——
+///    2026-10-16 踩过：27 个会话日志里 request/header 的 model 恒为 acp 行的值，
+///    与设置页注入值不一致。
+///
+/// rawValue 即**上线的 wire model id**，拼错的代价不是本地报错：
+/// `dsh-llm-deepseek` 的 `modelInfo()` 对目录外的 id 会原样透传
+/// （`{ id: model, name: model, inputModalities: ["text"] }`），错 id 会一路发到
+/// 服务端。所以这里的取值必须逐字来自 vendored runtime 的 `DEFAULT_MODELS`：
+///   - `deepseek-flash`  （dsh 目录 id；账号侧展示名 DeepSeek-V4.1-Flash）
+///   - `deepseek-v4-pro` （dsh 目录 id；展示名 DeepSeek-V4-Pro）
+/// 实测账号模型目录：`GET /v1/models` → `["deepseek-flash", "deepseek-v4-pro"]`。
+///
+/// ⚠️ 曾经的取值 `deepseek-v4-flash` **不在目录里**，只是网关接受的别名
+/// （请求它以该 id 发出，响应里的 `model` 回的是 `deepseek-flash`）。它能用，
+/// 但会带来一个可见缺陷：`AcpModelControl.state()` 发现 currentValue 不在
+/// catalog choices 里时会**合成**一条 `name == value` 的选项塞进分组，
+/// 于是会话模型选择器里出现两条其实是同一个模型的条目
+/// （`deepseek-v4-flash` 合成项 + `DeepSeek-V4.1-Flash` 目录项）。
+/// 2026-10-16 用真实 dsh 实测确认了这个 3 条目的选择器，故改回规范 id。
+public enum AgentModel: String, CaseIterable, Codable, Sendable {
+    /// DeepSeek-V4.1-Flash：默认档。
+    case flash = "deepseek-flash"
+    /// DeepSeek-V4-Pro：更强的 agentic coding 与困难推理，成本更高。
+    case pro = "deepseek-v4-pro"
+}
+
 @available(macOS 14.0, *)
 @Model
 public final class AppSettings {
@@ -126,17 +157,22 @@ public final class AppSettings {
     public var sandboxModeRaw: String
     public var telemetryEnabled: Bool
     public var sidecarVersion: String?
+    /// 默认模型 id。可选而非非可选：SwiftData 轻量迁移要求新字段可空或有声明级默认值，
+    /// 否则旧 store 读取会失败。nil 一律按 `AgentModel.flash` 回落（见 agentModel）。
+    public var modelRaw: String?
 
     public init(singletonID: Int = 1,
                 policyMode: PolicyMode = .strict,
                 sandboxMode: SandboxMode = .workspaceWrite,
                 telemetryEnabled: Bool = false,
-                sidecarVersion: String? = nil) {
+                sidecarVersion: String? = nil,
+                model: AgentModel = .flash) {
         self.singletonID = singletonID
         self.policyModeRaw = policyMode.rawValue
         self.sandboxModeRaw = sandboxMode.rawValue
         self.telemetryEnabled = telemetryEnabled
         self.sidecarVersion = sidecarVersion
+        self.modelRaw = model.rawValue
     }
 
     public var policyMode: PolicyMode {
@@ -147,5 +183,11 @@ public final class AppSettings {
     public var sandboxMode: SandboxMode {
         get { SandboxMode(rawValue: sandboxModeRaw) ?? .workspaceWrite }
         set { sandboxModeRaw = newValue.rawValue }
+    }
+
+    /// 未知/缺失的 modelRaw 一律回落 `.flash`（fail-soft：模型选择是偏好，不是安全边界）。
+    public var agentModel: AgentModel {
+        get { modelRaw.flatMap(AgentModel.init(rawValue:)) ?? .flash }
+        set { modelRaw = newValue.rawValue }
     }
 }

@@ -14,10 +14,11 @@ public struct DenyAllAnswerer: PermissionAnswerer {
 
 /// 把 ACP server 反向请求路由到 App：
 /// - session/request_permission → PermissionAnswerer（审批卡 / 规则引擎）
-/// - fs/readTextFile           → 可选的文件读取回调（v1 默认 -32601）
+/// - fs/read_text_file           → 可选的文件读取回调（v1 默认 -32601；
+///                                 接上后按 workspace 边界 + 大小上限 fail-closed）
 public actor PermissionBroker: ServerRequestHandler {
     private var answerer: PermissionAnswerer
-    private var fsReader: (@Sendable (String) async throws -> String)?
+    private var fsReader: (@Sendable (String, Int?, Int?) async throws -> String)?
 
     public init(answerer: PermissionAnswerer = DenyAllAnswerer()) {
         self.answerer = answerer
@@ -27,7 +28,8 @@ public actor PermissionBroker: ServerRequestHandler {
         self.answerer = answerer
     }
 
-    public func setFileSystemReader(_ reader: @Sendable @escaping (String) async throws -> String) {
+    /// (path, line, limit) → 文本内容。实现方负责 workspace 边界与大小上限。
+    public func setFileSystemReader(_ reader: @Sendable @escaping (String, Int?, Int?) async throws -> String) {
         self.fsReader = reader
     }
 
@@ -40,7 +42,7 @@ public actor PermissionBroker: ServerRequestHandler {
         case AcpMethod.fsReadTextFile:
             guard let fsReader else { return nil }
             let request = try JSONDecoder.acp.decode(FsReadTextFileParams.self, from: params)
-            let content = try await fsReader(request.path)
+            let content = try await fsReader(request.path, request.line, request.limit)
             return try JSONEncoder.acp.encode(FsReadTextFileResult(content: content))
         default:
             return nil

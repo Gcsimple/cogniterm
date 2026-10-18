@@ -32,3 +32,6 @@ secrets.yml
 
 # ---- macOS ----
 .DS_Store
+
+# ---- Agent 工作记忆（本地笔记，非项目代码）----
+.workbuddy/

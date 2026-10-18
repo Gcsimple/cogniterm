@@ -18,19 +18,23 @@ public struct SidecarConfig: Sendable {
     /// stdin EOF 后等待 dsh 排空持久化的宽限时间。
     public var gracefulShutdownTimeout: TimeInterval
     public var maxRestarts: Int
+    /// tool_call 关联缓存（分帧路径同步记录；见 AcpConnection.dispatch）。
+    public var toolCallTracker: ToolCallTracker?
 
     public init(executableURL: URL,
                 arguments: [String] = ["--profile", "acp"],
                 environment: [String: String],
                 currentDirectoryURL: URL? = nil,
                 gracefulShutdownTimeout: TimeInterval = 5,
-                maxRestarts: Int = 3) {
+                maxRestarts: Int = 3,
+                toolCallTracker: ToolCallTracker? = nil) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.environment = environment
         self.currentDirectoryURL = currentDirectoryURL
         self.gracefulShutdownTimeout = gracefulShutdownTimeout
         self.maxRestarts = maxRestarts
+        self.toolCallTracker = toolCallTracker
     }
 }
 
@@ -77,7 +81,7 @@ public final class SidecarSupervisor: @unchecked Sendable {
             environment: config.environment,
             currentDirectoryURL: config.currentDirectoryURL
         ))
-        let client = DshAcpClient(transport: transport)
+        let client = DshAcpClient(transport: transport, toolCallTracker: config.toolCallTracker)
         transport.onDiagnostic = { [weak self] line in self?.onDiagnostic?(line) }
 
         let observedClient = client

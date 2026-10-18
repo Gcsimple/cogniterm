@@ -81,6 +81,10 @@ public actor AcpConnection {
     private let transport: RPCTransport
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    /// toolCallId → 快照的关联缓存（dsh 审批请求只带 toolCallId，
+    /// 命令文本必须由先行的 tool_call 事件按到达序入库——在分帧路径同步记录，
+    /// 与后续 server 请求的处理严格保序）。
+    private let toolCallTracker: ToolCallTracker?
 
     private var pumpTask: Task<Void, Never>?
     private var pending: [JSONId: CheckedContinuation<JSONValue, Error>] = [:]
@@ -90,13 +94,19 @@ public actor AcpConnection {
 
     private let notificationContinuation: AsyncStream<Notification>.Continuation
     public let notifications: AsyncStream<Notification>
+    /// 服务端反向请求的处理链：按到达序串行，但**不在分帧泵上 await**——
+    /// request_permission 会挂起等待用户审批，若阻塞泵，紧随其后的
+    /// prompt 响应（stopReason）永远排不上队，整条连接假死。
+    private var serverRequestChain: Task<Void, Never>?
 
     public init(transport: RPCTransport,
                 encoder: JSONEncoder = .acp,
-                decoder: JSONDecoder = .acp) {
+                decoder: JSONDecoder = .acp,
+                toolCallTracker: ToolCallTracker? = nil) {
         self.transport = transport
         self.encoder = encoder
         self.decoder = decoder
+        self.toolCallTracker = toolCallTracker
         var cont: AsyncStream<Notification>.Continuation!
         let stream = AsyncStream { cont = $0 }
         self.notifications = stream
@@ -104,6 +114,11 @@ public actor AcpConnection {
     }
 
     public var isRunning: Bool { started }
+
+    /// 查询 tool_call 快照（供审批卡/规则引擎在 request_permission 到达时补给命令文本）。
+    public func toolCallSnapshot(for toolCallId: String) -> ToolCallSnapshot? {
+        toolCallTracker?.snapshot(for: toolCallId)
+    }
 
     public func start(serverHandler: ServerRequestHandler? = nil) async throws {
         guard !started else { return }
@@ -184,7 +199,9 @@ public actor AcpConnection {
         do {
             let envelope = try decoder.decode(RPCEnvelope.self, from: line)
             if envelope.id != nil && envelope.method != nil {
-                await handleServerRequest(id: envelope.id!, method: envelope.method!, params: envelope.params)
+                // 反向请求（request_permission / fs/read_text_file）甩到链上串行处理，
+                // 分帧泵继续排空后续帧——审批挂起不再堵死 prompt 响应。
+                await enqueueServerRequest(id: envelope.id!, method: envelope.method!, params: envelope.params)
             } else if let id = envelope.id {
                 await settle(id: id, result: envelope.result, error: envelope.error)
             } else if let method = envelope.method {
@@ -193,6 +210,16 @@ public actor AcpConnection {
                     data = try? params.reencoded(using: encoder)
                 } else {
                     data = nil
+                }
+                // session/update 在分帧路径同步入库 toolCallTracker：
+                // 通知的消费者在另一个 Task 上异步处理，而紧随其后的
+                // request_permission 会在本路径立即处理——只有同步按到达序记录，
+                // 才能保证审批请求拿到命令文本（dsh 服务端以 drainUpdates 保序，
+                // 客户端必须同序，否则 rules 模式与审批卡会间歇性丢命令）。
+                if method == AcpMethod.sessionUpdate, let data,
+                   let note = try? decoder.decode(SessionNotificationParams.self, from: data),
+                   let update = note.update {
+                    toolCallTracker?.record(update)
                 }
                 notificationContinuation.yield((method, data))
             }
@@ -223,6 +250,16 @@ public actor AcpConnection {
         continuation.resume(throwing: error)
     }
 
+    /// 把服务端反向请求挂到串行链尾：前一个处理完（用户已审批）才轮到下一个，
+    /// 保证响应顺序与到达顺序一致；分帧泵本身不等待。
+    private func enqueueServerRequest(id: JSONId, method: String, params: JSONValue?) {
+        let previous = serverRequestChain
+        serverRequestChain = Task { [previous, weak self] in
+            await previous?.value
+            await self?.handleServerRequest(id: id, method: method, params: params)
+        }
+    }
+
     private func handleServerRequest(id: JSONId, method: String, params: JSONValue?) async {
         let paramsData = try? params?.reencoded(using: encoder)
         do {
@@ -244,6 +281,8 @@ public actor AcpConnection {
 
     private func handleTransportEnd() {
         started = false
+        serverRequestChain?.cancel()
+        serverRequestChain = nil
         notificationContinuation.finish()
         let waiters = pending
         pending.removeAll()

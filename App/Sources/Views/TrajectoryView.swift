@@ -12,7 +12,7 @@ struct TrajectoryView: View {
                         emptyState
                     }
                     ForEach(conversation.rows) { row in
-                        RowView(row: row).id(row.id)
+                        RowView(row: row, conversation: conversation).id(row.id)
                     }
                     if conversation.isWorking {
                         HStack(spacing: 6) {
@@ -57,6 +57,7 @@ struct TrajectoryView: View {
 
 private struct RowView: View {
     let row: TranscriptRow
+    @ObservedObject var conversation: ConversationModel
 
     var body: some View {
         switch row.kind {
@@ -69,17 +70,42 @@ private struct RowView: View {
                    color: Color(nsColor: .controlBackgroundColor),
                    alignment: .leading)
         case .tool:
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "wrench.and.screwdriver")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(row.text).font(.system(.caption, design: .monospaced))
-                    if let status = row.status {
-                        Text(status)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "wrench.and.screwdriver")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.top, 2)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.text).font(.system(.caption, design: .monospaced))
+                        if let status = row.status {
+                            Text(status)
+                                .font(.caption2)
+                                .foregroundStyle(statusColor(status))
+                        }
+                    }
+                }
+                // 完整输出：默认折叠（长结果不进对话流），按需展开。
+                // 展开视图限高 200pt + 内部滚动——完整日志可能有几百行，
+                // 不限制会把对话区彻底撑飞。
+                if let full = row.fullResult, !full.isEmpty {
+                    if conversation.isResultExpanded(row.id) {
+                        ScrollView {
+                            Text(full)
+                                .font(.system(.caption, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .textSelection(.enabled)
+                                .padding(6)
+                        }
+                        .frame(maxHeight: 200)
+                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                        Button("收起") { conversation.toggleResultExpansion(row.id) }
                             .font(.caption2)
-                            .foregroundStyle(statusColor(status))
+                    } else {
+                        Button("展开完整输出（\(full.split(separator: "\n", omittingEmptySubsequences: false).count) 行）") {
+                            conversation.toggleResultExpansion(row.id)
+                        }
+                        .font(.caption2)
                     }
                 }
             }

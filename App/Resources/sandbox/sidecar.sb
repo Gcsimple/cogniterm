@@ -11,6 +11,11 @@
 ;;   -D AWS_CREDS / NETRC（凭据墙完整字面路径）
 ;;   -D NPM_CACHE_DIR / USER_CACHE_DIR / USER_LOGS_DIR / APP_SUPPORT_COGNITERM
 ;;   -D RUNTIME_DIR
+;;   -D APP_BUNDLE=<app 根>（--patch 文件在 Contents/Resources 根，不在 RUNTIME_DIR 之下）
+;;
+;; ⚠️ 每个 (param "X") 都必须有对应的 -D 注入，否则 sandbox-exec 直接报未知参数、
+;;    sidecar 起不来 —— 由 App/Tests/…/SidecarEnvironmentTests.swift 的
+;;    testEverySandboxParamIsInjected 断言（sb 与注入的一致性是可测的）。
 ;;
 ;; 注意：依赖 macOS 自带的 sandbox-exec（Apple 已标记 deprecated 但 15.x 仍随系统提供）。
 
@@ -51,6 +56,22 @@
        (subpath "/private/var/db/timezone")
        (subpath (param "RUNTIME_DIR")))
 
+;; App bundle 自身：**必须显式放行**。
+;;
+;; 2026-10-16 装到 /Applications 后实测踩到的最贵一次：
+;;   RUNTIME_DIR 只覆盖 <app>/Contents/Resources/runtime，而 dsh 的
+;;   `--patch <path>` 文件位于 Contents/Resources **根**，不在 runtime/ 之下。
+;;   开发期 app 落在 $HOME 内（.build/…），会被下面的 HOME 读放行顺带覆盖，
+;;   所以本地一直看不出问题；一旦装到 /Applications（以及任何既不在 $HOME
+;;   又在 /private/tmp 之外的位置），两条放行都不覆盖它 →
+;;   沙箱内的 dsh 读不到 --patch → 启动即失败 → sidecar 反复崩溃重启，
+;;   而 App 侧只显示"sidecar 连续崩溃"，完全看不出是沙箱路径问题。
+;;
+;; 判据：同一份二进制，放在 $HOME / /private/tmp 下都能起 sidecar，
+;;       放在 /Applications 下必失败 —— 变量只有 app 位置。
+(allow file-read* file-map-executable
+       (subpath (param "APP_BUNDLE")))
+
 ;; 工作区：读写（受内层 read-only / workspace-write 模式进一步收敛）
 (allow file-read* file-write* file-ioctl
        (subpath (param "WORKSPACE_ROOT")))
@@ -88,17 +109,39 @@
 (allow ipc-posix*)
 (allow mach-lookup)
 
-;; 仅放行远端 HTTPS（443）、DNS（53）与本机 MCP（loopback 任意端口）。
-;; 注意：macOS 26+ 的 SBPL 已移除主机名过滤（host 关键字与具名 host 均无法编译），
-;; 外层只做端口级收敛；模型端点在 dsh 配置层固定为官方 api.deepseek.com。
-(allow network-outbound
-       (remote tcp "*:443")
-       (remote tcp "localhost:*")
-       (remote udp "*:53")
-       (remote udp "localhost:*"))
-(allow network-bind)
+;; ⛔ **绝对不要写 `(remote ...)` 过滤器** —— 本机 macOS 27.0.1 实测：带过滤器的
+;; `network-outbound` **一条都不放行**，等价于把网络整个禁掉。
+;;
+;; 2026-10-16 排查"发消息必报错"的最贵一次，确证链条（全部单变量、可复现）：
+;;   ① 单变量矩阵（最小 profile 只换网络块，同环境同二进制）：
+;;        (remote tcp "*:443") (remote udp "*:53")      → FAIL
+;;        (remote tcp "*:*")   (remote udp "*:*")       → FAIL（**不是端口问题**）
+;;        (remote ip  "*:443") (remote ip  "*:53")      → FAIL（不是协议关键字问题）
+;;        (allow network-outbound)      ← 不带过滤器      → **HTTP 401 ✅**
+;;      → 过滤器这个构造在本机整体失效，与主机名/端口/`tcp|udp|ip` 都无关。
+;;   ② 端到端复现（真起 dsh 走 ACP initialize → session/new → session/prompt）：
+;;        现状 profile  → prompt 报 -32603 "DeepSeek Messages transport failed"
+;;        去掉过滤器    → prompt 报 "Authentication Fails, Your api key: ****test is
+;;                        invalid (request_id: 81be4beb-…)"  ← **服务端真的回了**
+;;   ③ 机理：沙箱内 getaddrinfo 立刻失败 →
+;;        curl (6) Could not resolve host / node dns.lookup ENOTFOUND
+;;        → node fetch 抛 `TypeError: fetch failed`，cause 是 ENOTFOUND
+;;        → dsh-llm-deepseek 包成 LlmError("…transport failed", "TRANSPORT",
+;;          { cause }) —— **cause 既不写会话 JSONL 也不打 stderr**，
+;;          所以 App 侧只看到一句 TRANSPORT，且 34ms 就失败（不是超时，是立刻被拒）。
+;;      → 历史统计"30 个会话只 1 次成功"，那唯一一次还是不经 seatbelt 的直连脚本。
+;;
+;; **代价与补偿**（失去端口级收敛，这是本机 SBPL 的硬约束，无法在此表达）：
+;;   ① 模型端点由 dsh 配置层固定（core patch 的 `acp` / `agent-default-model`）；
+;;   ② dsh 内层 sandbox-policy 与 ACP request_permission 仍然生效；
+;;   ③ 出站只属本进程；`network-inbound` 维持 deny default（不监听外部）。
+;; 将来 Apple 若修好过滤器，应收紧回 `(remote tcp "*:443")` + `(remote udp "*:53")`。
+;; **判据（唯一可信）**：同环境沙箱内 curl 能得 401。跑 `scripts/probe-sandbox-network.sh`。
+(allow network-outbound)
 
-;; 其余网络动作（监听非 loopback、原始套接字等）维持 deny default。
+;; network-bind：保留（既有的本机 MCP / loopback 需要）。
+;; 注：C 变体已验证 ACP 链路不依赖它，将来想收紧可以先删它再跑一遍 e2e。
+(allow network-bind)
 
 ;; aha-sandbox-seatbelt-bridge
 (allow file-read* file-write* (subpath "/private/tmp/.sboxcache_502/audit_trae-sandbox_dcc3585d"))
