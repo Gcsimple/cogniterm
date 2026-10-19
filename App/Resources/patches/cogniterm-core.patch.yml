@@ -37,7 +37,7 @@
 #   注意 --dump-config 只原样打印表达式、不求值，别拿 dump 判断它是否生效。
 - id: agent-default-model
   config:
-    provider: deepseek-official
+    provider: !!js process.env.DSH_COGNITERM_PROVIDER || 'deepseek-official'
     model: !!js process.env.DSH_COGNITERM_MODEL || 'deepseek-flash'
 
 # ── ACP 会话模型（设置页模型选择器的真实落点）────────────────────
@@ -58,6 +58,10 @@
 # provider 必须显式重写：PATCH 是整体替换该条目的 config（不是深合并），
 # 只写 model 会把 provider 丢掉，导致会话无法解析路由。
 #
+# provider 可由 DSH_COGNITERM_PROVIDER 覆盖：设置页把「默认模型」指向自定义端点
+# （本地 vLLM / 内网网关）时，SidecarService 注入该端点的路由名。
+# 不注入时回落内置 deepseek-official —— 与加这个变量之前的行为逐位一致。
+#
 # 默认值取 dsh 模型目录里的**规范 id** `deepseek-flash`。
 # 曾经用过 `deepseek-v4-flash`（上游 dsh-acp-app 出货行的字面值）——它能跑，
 # 但那只是**网关别名**，不在 dsh 的 DEFAULT_MODELS 目录里。后果是
@@ -68,7 +72,7 @@
 # 响应里的 model 字段回的是 deepseek-flash（即别名被解析）。
 - id: acp
   config:
-    provider: deepseek-official
+    provider: !!js process.env.DSH_COGNITERM_PROVIDER || 'deepseek-official'
     model: !!js process.env.DSH_COGNITERM_MODEL || 'deepseek-flash'
 
 # 会话标题由本地生成，不额外花一次 LLM 调用。

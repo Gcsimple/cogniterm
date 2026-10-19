@@ -34,7 +34,12 @@ final class SidecarService: ObservableObject {
         var policyMode: PolicyMode = .strict
         var sandboxMode: SandboxMode = .workspaceWrite
         var telemetryEnabled: Bool = false
-        var agentModel: AgentModel = .flash
+        /// 新会话的启动缺省模型（provider 路由 + 模型 id）。
+        ///
+        /// 旧版这里只有 `AgentModel`——等于把 provider 硬编码成 deepseek-official，
+        /// 挂上自定义端点之后就无法让会话默认跑在本地模型上，也无法在没有
+        /// DeepSeek Key 的机器上使用。
+        var defaultModel: DefaultModelSelection = .deepSeekDefault
     }
 
     @Published private(set) var status: Status = .stopped
@@ -142,6 +147,24 @@ final class SidecarService: ObservableObject {
         return !key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    /// 能否拉起 sidecar —— 看的是**默认 provider 有没有可用凭据**。
+    ///
+    /// 旧版只认 DeepSeek Key，于是「全部跑本地模型」的部署被卡在 onboarding：
+    /// 明明配好了本地端点，App 仍一直提示「需要 API Key」，怎么点都起不来。
+    /// 现在按默认模型落在哪个 provider 分流：
+    /// - 内置 DeepSeek → 必须有 Key；
+    /// - 自定义端点 → 该端点要在清单里且可用（凭据缺失时 pi-ai 用占位值，不算阻碍）。
+    ///
+    /// 仍然 fail-closed：默认 provider 找不到对应端点就拒绝启动，而不是默默
+    /// 回落到 DeepSeek 让用户以为在用本地模型。
+    var canStart: Bool {
+        let provider = settings.defaultModel.providerID
+        if provider == DefaultModelSelection.deepSeekProvider { return hasAPIKey }
+        return ModelEndpointStore.load().usableEndpoints.contains {
+            ModelEndpoint.normalizedRouteID($0.id) == provider
+        }
+    }
+
     private var nodeURL: URL {
         runtimeDirectory.appendingPathComponent("node-darwin-arm64/bin/node")
     }
@@ -168,6 +191,32 @@ final class SidecarService: ObservableObject {
     /// 禁用重复，属双保险：corePatch 因故缺失时这一层仍兜底。
     private var noTelemetryPatchURL: URL? {
         Self.patchURL(named: "no-telemetry.yml")
+    }
+
+    /// 用户自定义模型端点的覆盖层文件名。
+    ///
+    /// 由 App 在每次 `start()` 前依据 `model-endpoints.json` 重新生成，落在
+    /// Application Support（外层沙箱对 `HOME_DIR` 放行只读、对 `APP_SUPPORT_COGNITERM`
+    /// 额外放行写，所以 dsh 读得到）。
+    ///
+    /// 为什么生成文件而不是塞进包内 patch：端点是用户配置，包内资源只读且随版本走。
+    /// 为什么不是环境变量 + `!!js`：`providers` 是嵌套字典 + 模型数组，拼 JS 表达式
+    /// 既不好读也不好排错；生成的文件还能用 `--dump-config` 直接核对合成结果。
+    nonisolated static let providerPatchFileName = "user-providers.patch.yml"
+
+    private var providerPatchURL: URL {
+        applicationSupportDirectory
+            .appendingPathComponent("CogniTerm", isDirectory: true)
+            .appendingPathComponent(Self.providerPatchFileName)
+    }
+
+    /// 把渲染好的覆盖层写盘。失败只记诊断、不阻断启动——自定义模型是增强，
+    /// 不该让 App 起不来（与「core patch 缺失必须 fail-closed」是两件事）。
+    private func writeProviderPatch(_ yaml: String) throws {
+        let url = providerPatchURL
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try yaml.write(to: url, atomically: true, encoding: .utf8)
     }
 
     /// 收编覆盖层的资源文件名。**必须写全名**，含 `.patch` 段。
@@ -203,11 +252,11 @@ final class SidecarService: ObservableObject {
 
     // MARK: - 零配置启动
 
-    /// App 首启入口：dsh 首启自行初始化 profile；有 Key 直连，无 Key 弹一次 Onboarding。
+    /// App 首启入口：dsh 首启自行初始化 profile；凭据齐备直连，否则弹一次 Onboarding。
     func bootstrap() async {
         let fm = FileManager.default
         try? fm.createDirectory(at: dshHomeDirectory, withIntermediateDirectories: true)
-        if hasAPIKey {
+        if canStart {
             await start()
         } else {
             status = .needsKey
@@ -295,9 +344,13 @@ final class SidecarService: ObservableObject {
     func start() async {
         guard !isBusy else { return }
 
-        guard hasAPIKey else {
+        guard canStart else {
             status = .needsKey
             needsOnboarding = true
+            diagnostics.append(
+                "[launcher] 拒绝启动：默认模型 provider=\(settings.defaultModel.providerID) "
+                + "缺少可用凭据（内置 DeepSeek 需要 Key；自定义端点需要在「模型端点」里可用）"
+            )
             return
         }
 
@@ -392,6 +445,24 @@ final class SidecarService: ObservableObject {
             }
         }
 
+        // 自定义模型端点（本地 Qwen / 内网网关 / 任意 OpenAI 兼容端点）。
+        //
+        // dsh-base 把 `llm-pi-ai` 挂成休眠态（零路由），这里给出的 providers 会让
+        // 路由注册出来；因为 dsh-acp 的 model 选项是**按 provider 分组列出全部模型**，
+        // 所以挂上之后会话内的模型选择器会直接多出「本地 Qwen3.8-27B」这样的分组，
+        // 不需要再去点重启。要改端点本身才需要重连。
+        let customEndpoints = ModelEndpointStore.load().usableEndpoints
+        if let yaml = ProviderPatch.render(endpoints: customEndpoints) {
+            do {
+                try writeProviderPatch(yaml)
+                arguments += ["--patch", providerPatchURL.path]
+                let names = customEndpoints.map(\.displayName).joined(separator: "、")
+                diagnostics.append("[launcher] 已挂载 \(customEndpoints.count) 个自定义模型端点：\(names)")
+            } catch {
+                diagnostics.append("[launcher] 自定义模型端点覆盖层写入失败，本次仅用内置模型：\(error)")
+            }
+        }
+
         var environment = ProcessInfo.processInfo.environment
         environment["PATH"] = "\(runtimeDirectory.path)/node-darwin-arm64/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         environment["DEEPSEEK_API_KEY"] = keychain.read() ?? ""
@@ -406,7 +477,23 @@ final class SidecarService: ObservableObject {
         // 只绑 agent-default-model 是无效的：dsh-acp 不消费 agentDefaultModel。
         // 名字带 COGNITERM 前缀而非裸 DSH_MODEL，避免与用户自己 shell 里的
         // 同名变量互相干扰（我们只改子进程环境，但诊断日志会打印环境）。
-        environment["DSH_COGNITERM_MODEL"] = settings.agentModel.rawValue
+        environment["DSH_COGNITERM_MODEL"] = settings.defaultModel.modelID
+        // provider 同样走环境变量：core patch 的 `acp` 与 `agent-default-model`
+        // 两处都读它。指向自定义端点时这里是该端点的路由名。
+        environment["DSH_COGNITERM_PROVIDER"] = settings.defaultModel.providerID
+        // 自定义端点的凭据：pi-ai 的 `apiKeyEnv` 是一个 credential ref，按请求解析，
+        // 所以只要把同名变量注入子进程环境即可，不需要把 key 写进 patch。
+        //
+        // **这个变量必须始终有值**（实证 2026-10-19，headless 真跑）：
+        // pi-ai 对 `openai-completions` 路由无条件要求凭据——变量缺失时请求直接失败
+        // `PI_AI_ERROR: No API key for provider: <route>`，即使上游是根本不校验
+        // Authorization 的本地 vLLM。所以界面留空的端点注入占位值（上游会忽略这个头），
+        // 而不是跳过不注入。
+        for endpoint in customEndpoints {
+            let stored = endpoint.apiKeyAccount.flatMap { KeychainService(account: $0).read() }
+            let key = (stored?.isEmpty == false) ? stored! : ModelEndpoint.placeholderAPIKey
+            environment[endpoint.apiKeyEnvName] = key
+        }
         stripProxyEnvironment(&environment)
         if settings.telemetryEnabled {
             environment.removeValue(forKey: "DSH_TELEMETRY_DISABLED")

@@ -235,10 +235,27 @@ if [ "$BIND_COUNT" -ne 2 ]; then
 fi
 # acp 行的 config 是整体替换而非深合并（实测：只写 model 时 provider 消失），
 # 所以覆盖 acp 必须同时写回 provider。
+#
+# provider 的两种合法写法：
+#   ① 字面量 `provider: deepseek-official`（历史形态）
+#   ② `provider: !!js process.env.DSH_COGNITERM_PROVIDER || 'deepseek-official'`
+#      —— 设置页把「默认模型」指向自定义端点（本地 vLLM / 内网网关）时要能改
+#      provider（2026-10-19；此前 provider 是硬编码，等于只能在会话内切换）。
+# 判据因此放宽为「acp 条目附近出现某个 provider: 赋值」，「只写 model」的坏
+# patch 依旧会被挡住 —— 那才是这条检查真正要防的事故。
 # ⚠️ 模式用 -E "^- id: acp$" 而不是 -F "- id: acp"：后者以 `-` 开头会被 grep
 #    当成选项（实测报 invalid option），且会误匹配 `- id: acp-app-startup`。
-if ! grep -A4 -E "^\- id: acp$" "$PATCH_IN_BUNDLE" | grep -qF "provider: deepseek-official"; then
+if ! grep -A5 -E "^\- id: acp$" "$PATCH_IN_BUNDLE" | grep -qE "^    provider: "; then
   echo "!! patch 覆盖 acp 行时丢失了 provider（整体替换语义），会话将无法解析路由" >&2
+  exit 1
+fi
+
+# provider 的环境变量绑定与 model 同步：两处都要绑，少一处会让设置页的
+# 「默认模型」在 acp 侧不生效（落点仍是 core patch 的缺省 provider）。
+PROVIDER_BIND_COUNT=$(grep -cF "!!js process.env.DSH_COGNITERM_PROVIDER" "$PATCH_IN_BUNDLE" || true)
+if [ "$PROVIDER_BIND_COUNT" -ne 2 ]; then
+  echo "!! bundle 内 patch 的 DSH_COGNITERM_PROVIDER 绑定应为 2 处（agent-default-model + acp），实为 $PROVIDER_BIND_COUNT" >&2
+  echo "   只绑一处时设置页把默认模型指向自定义端点后，acp 会话仍会落回 deepseek-official。" >&2
   exit 1
 fi
 

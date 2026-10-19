@@ -18,6 +18,7 @@
 		BF100000000000000000A009 /* ApprovalCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A009 /* ApprovalCardView.swift */; };
 		BF100000000000000000A00A /* TerminalPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00A /* TerminalPaneView.swift */; };
 		BF100000000000000000A00B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00B /* SettingsView.swift */; };
+		BF100000000000000000A022 /* ModelEndpointSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A022 /* ModelEndpointSettingsView.swift */; };
 		BF100000000000000000A00C /* sidecar.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00C /* sidecar.sb */; };
 		BF100000000000000000A016 /* sidecar-writable.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A016 /* sidecar-writable.sb */; };
 		BF100000000000000000A017 /* TerminalMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A017 /* TerminalMCPServer.swift */; };
@@ -59,6 +60,7 @@
 		FR100000000000000000A009 /* ApprovalCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalCardView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00A /* TerminalPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		FR100000000000000000A022 /* ModelEndpointSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEndpointSettingsView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00C /* sidecar.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar.sb; sourceTree = "<group>"; };
 		FR100000000000000000A016 /* sidecar-writable.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar-writable.sb; sourceTree = "<group>"; };
 		FR100000000000000000A017 /* TerminalMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMCPServer.swift; sourceTree = "<group>"; };
@@ -165,6 +167,7 @@
 				FR100000000000000000A009 /* ApprovalCardView.swift */,
 				FR100000000000000000A00A /* TerminalPaneView.swift */,
 				FR100000000000000000A00B /* SettingsView.swift */,
+				FR100000000000000000A022 /* ModelEndpointSettingsView.swift */,
 				FR100000000000000000A012 /* OnboardingView.swift */,
 				FR100000000000000000A013 /* SessionReplayView.swift */,
 				FR100000000000000000A019 /* NewSSHSessionSheet.swift */,
@@ -374,6 +377,7 @@
 				BF100000000000000000A009 /* ApprovalCardView.swift in Sources */,
 				BF100000000000000000A00A /* TerminalPaneView.swift in Sources */,
 				BF100000000000000000A00B /* SettingsView.swift in Sources */,
+				BF100000000000000000A022 /* ModelEndpointSettingsView.swift in Sources */,
 				BF100000000000000000A012 /* OnboardingView.swift in Sources */,
 				BF100000000000000000A013 /* SessionReplayView.swift in Sources */,
 			);

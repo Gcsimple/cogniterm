@@ -516,10 +516,16 @@ struct SidebarView: View {
         if let label = sidecar.modelConfigOption?.currentLabel, !label.isEmpty {
             return label
         }
-        switch sidecar.settings.agentModel {
-        case .flash: return "Flash"
-        case .pro: return "Pro"
+        // 未连接时回落显示配置里的默认模型。自定义端点的模型 id 不一定在内置
+        // 枚举里，所以先按原始 id 显示，认不出来才走内置档的短名。
+        let selection = sidecar.settings.defaultModel
+        if let model = AgentModel(rawValue: selection.modelID), selection.isBuiltinDeepSeek {
+            switch model {
+            case .flash: return "Flash"
+            case .pro: return "Pro"
+            }
         }
+        return selection.modelID
     }
 
     private var modelSummary: String {

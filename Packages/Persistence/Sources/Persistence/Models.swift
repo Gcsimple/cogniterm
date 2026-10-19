@@ -189,6 +189,48 @@ public enum AgentModel: String, CaseIterable, Codable, Sendable {
     case pro = "deepseek-v4-pro"
 }
 
+/// 会话默认模型 = (provider 路由, 模型 id) 二元组。
+///
+/// 为什么不是单个字符串：dsh-acp 的模型选项 value 是
+/// `JSON.stringify([provider, model])`（`dsh-acp/lib/index.js` 的 `modelValue`），
+/// provider 与 model 是**两个独立维度**。自定义端点挂上之后，同一个模型名可能
+/// 来自不同 provider（例如本地 vLLM 与内网网关都叫 `Qwen3.8-27B`），
+/// 只存 model 无法唯一确定路由，切过去会落到错误的端点上。
+///
+/// 这也解释了为什么设置页的默认模型选择器必须带上 provider 前缀：
+/// 旧版只列 `AgentModel` 两个内置档，等于假设「provider 永远是 deepseek-official」，
+/// 挂上自定义端点后这个假设当场失效。
+public struct DefaultModelSelection: Equatable, Hashable, Codable, Sendable {
+    /// dsh 内置的 DeepSeek 账号路由名（core patch 里的历史默认值）。
+    public static let deepSeekProvider = "deepseek-official"
+    public static let deepSeekDefault = DefaultModelSelection(
+        providerID: deepSeekProvider,
+        modelID: AgentModel.flash.rawValue
+    )
+
+    public var providerID: String
+    public var modelID: String
+
+    public init(providerID: String, modelID: String) {
+        self.providerID = providerID
+        self.modelID = modelID
+    }
+
+    public var isBuiltinDeepSeek: Bool { providerID == Self.deepSeekProvider }
+
+    /// 选择器的 tag：`provider\u{1F}model`。
+    ///
+    /// 用不可见的 Unit Separator 而不是 `/` 或 `|`：模型 id 本身常带 `/`
+    /// （`org/model`）和 `:`（`qwen3:27b`），只有控制字符不会出现在两者里。
+    public var selectionID: String { "\(providerID)\u{1F}\(modelID)" }
+
+    public static func split(_ selectionID: String) -> DefaultModelSelection? {
+        let parts = selectionID.components(separatedBy: "\u{1F}")
+        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else { return nil }
+        return DefaultModelSelection(providerID: parts[0], modelID: parts[1])
+    }
+}
+
 @available(macOS 14.0, *)
 @Model
 public final class AppSettings {
@@ -201,19 +243,26 @@ public final class AppSettings {
     /// 默认模型 id。可选而非非可选：SwiftData 轻量迁移要求新字段可空或有声明级默认值，
     /// 否则旧 store 读取会失败。nil 一律按 `AgentModel.flash` 回落（见 agentModel）。
     public var modelRaw: String?
+    /// 默认模型所属的 provider 路由名。nil 表示内置 DeepSeek（旧库的语义）。
+    ///
+    /// 同样是可空新字段——加它之前「provider 恒为 deepseek-official」是硬编码假设，
+    /// 现在要能指向自定义端点（本地 vLLM / 内网网关）的路由。
+    public var providerRaw: String?
 
     public init(singletonID: Int = 1,
                 policyMode: PolicyMode = .strict,
                 sandboxMode: SandboxMode = .workspaceWrite,
                 telemetryEnabled: Bool = false,
                 sidecarVersion: String? = nil,
-                model: AgentModel = .flash) {
+                model: AgentModel = .flash,
+                providerID: String = DefaultModelSelection.deepSeekProvider) {
         self.singletonID = singletonID
         self.policyModeRaw = policyMode.rawValue
         self.sandboxModeRaw = sandboxMode.rawValue
         self.telemetryEnabled = telemetryEnabled
         self.sidecarVersion = sidecarVersion
         self.modelRaw = model.rawValue
+        self.providerRaw = providerID
     }
 
     public var policyMode: PolicyMode {
@@ -230,5 +279,32 @@ public final class AppSettings {
     public var agentModel: AgentModel {
         get { modelRaw.flatMap(AgentModel.init(rawValue:)) ?? .flash }
         set { modelRaw = newValue.rawValue }
+    }
+
+    /// provider 路由名，空/缺失回落内置 DeepSeek（与旧库行为一致）。
+    public var providerID: String {
+        get {
+            let trimmed = providerRaw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? DefaultModelSelection.deepSeekProvider : trimmed
+        }
+        set { providerRaw = newValue }
+    }
+
+    /// 模型 id 的**原始字符串**（可能是自定义端点的任意 id，不一定在内置枚举里）。
+    public var modelID: String {
+        get {
+            let trimmed = modelRaw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? AgentModel.flash.rawValue : trimmed
+        }
+        set { modelRaw = newValue }
+    }
+
+    /// 默认模型的完整二元组。设置页与 sidecar 启动参数都读这个，不再各自拼。
+    public var modelSelection: DefaultModelSelection {
+        get { DefaultModelSelection(providerID: providerID, modelID: modelID) }
+        set {
+            providerRaw = newValue.providerID
+            modelRaw = newValue.modelID
+        }
     }
 }

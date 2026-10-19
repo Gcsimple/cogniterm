@@ -109,16 +109,16 @@ open -b com.cogniterm.app
 scripts/run-tests.sh
 ```
 
-5 个本地包 + App 目标，共 **173** 个测试，全部通过：
+5 个本地包 + App 目标，共 **192** 个测试，全部通过：
 
 | 目标 | 用例数 |
 |---|---|
 | `AcpClient` | 42 |
 | `TerminalCore` | 32 |
 | `App`（CogniTerm） | 77 |
+| `Persistence` | 23 |
 | `SessionLogReader` | 10 |
 | `PolicyEngine` | 8 |
-| `Persistence` | 4 |
 
 App 测试用「编译测试 bundle + `xcrun xctest` 独立运行」的方式跑，不需要 app host——在无沙箱的常规机器上 `xcodebuild test` 也可以。
 
@@ -136,6 +136,69 @@ App 测试用「编译测试 bundle + `xcrun xctest` 独立运行」的方式跑
 | 重连 sidecar | 上下文头的 `⚙` |
 
 审批卡会标注命令的目标（本地 / `user@host`）——这是"命令可能发到远程"的唯一可见面。
+
+---
+
+## 配置本地模型（OpenAI 兼容端点）
+
+内置只有 DeepSeek 两个档位，但 CogniTerm 可以挂任意 **OpenAI 兼容端点**：
+本地 vLLM / SGLang，或内网推理网关。
+
+**怎么配**
+
+1. Settings →「模型端点（本地部署 / 自定义网关）」→ `添加端点…`
+2. 填三样：
+   - **Base URL**（带 `/v1`）：`http://10.100.51.218:18507/v1`
+   - **路由名**：会变成 dsh 的 provider key，小写字母 / 数字 / 连字符
+   - **API Key**：本地无鉴权可以留空（见下面"占位凭据"）
+3. 点 **从端点拉取模型列表**：直接问 `/v1/models`，别手抄 id。大小写错一个字母就是
+   `UNKNOWN_MODEL`——我们踩过 `qwen3.8-27b` vs `Qwen3.8-27B`。
+4. 填上下文窗口（本地 256K 常见值 `262144`）：填大了服务端直接 400，填小了会提前压缩历史。
+5. 保存 → **重连 sidecar**。
+
+**用起来**
+
+- **会话内实时切换**：侧栏 → 会话配置 → 模型，新端点会作为独立分组出现，不用重启
+- **设为启动默认**：Settings → 默认模型，自定义端点的模型与内置档并列
+
+**它到底怎么实现的**
+
+端点清单存 `~/Library/Application Support/CogniTerm/model-endpoints.json`，启动时渲染成一份
+dsh patch 覆盖层传给 `--patch`：
+
+```yaml
+- id: llm-pi-ai          # dsh-base 里是休眠挂载：给出 providers 即注册路由
+  config:
+    providers:
+      local-qwen:        # 路由名 = pi-ai 的 provider key
+        api: openai-completions
+        baseURL: 'http://10.100.51.218:18507/v1'
+        apiKeyEnv: COGNITERM_KEY_LOCAL_QWEN
+        models: [{ id: 'Qwen3.8-27B', contextWindow: 262144 }]
+```
+
+API Key 不进 patch：它存在 Keychain，启动时以同名环境变量注入子进程环境，patch 里只留引用。
+
+**两个真踩过的坑**
+
+- **pi-ai 对无鉴权端点也强制要凭据**。变量缺失时请求直接失败
+  `PI_AI_ERROR: No API key for provider: local-qwen`，即使上游根本不看 `Authorization`。
+  所以界面留空时 App 注入占位值 `local`。
+- **provider 是独立维度，不是拼在 model 里**。dsh-acp 的模型选项 value 是
+  `JSON.stringify([provider, model])`；同一个模型名可能来自不同端点，
+  所以「默认模型」存的是 `(provider, model)` 二元组。
+
+**验证方式（真跑，不看文档）**
+
+```bash
+DSH_COGNITERM_PROVIDER=local-qwen DSH_COGNITERM_MODEL=Qwen3.8-27B \
+COGNITERM_KEY_LOCAL_QWEN=local \
+dsh headless --patch cogniterm-core.patch.yml --patch user-providers.patch.yml "1+1 等于几？"
+# → 1+1 等于 2。
+```
+
+去掉 `DSH_COGNITERM_PROVIDER` 会回落到内置 `deepseek-official` 并报
+`MISSING_CREDENTIAL`——这一正一负两条输出就是"provider 真的被改了"的判据。
 
 ---
 

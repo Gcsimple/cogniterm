@@ -437,9 +437,10 @@ struct MainSplitView: View {
             policyMode: stored?.policyMode ?? .strict,
             sandboxMode: stored?.sandboxMode ?? .workspaceWrite,
             telemetryEnabled: stored?.telemetryEnabled ?? false,
-            // 漏传会让 settings.agentModel 恒为默认档，DSH_COGNITERM_MODEL 与设置页
-            // 里选的值不一致——而 sidecar 每次 start 都读它，静默用错模型。
-            agentModel: stored?.agentModel ?? .flash
+            // 漏传会让 settings.defaultModel 恒为默认档，DSH_COGNITERM_PROVIDER /
+            // DSH_COGNITERM_MODEL 与设置页里选的值不一致——而 sidecar 每次 start
+            // 都读它，静默用错模型（或指向不存在的 provider 导致会话起不来）。
+            defaultModel: stored?.modelSelection ?? .deepSeekDefault
         )
         sidecar.update(settings: settings)
     }

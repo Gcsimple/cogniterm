@@ -204,22 +204,39 @@ final class CoreProfilePatchTests: XCTestCase {
     /// patch 的语义是**整体替换**该条目的 config，不是深合并——已用 `--dump-config`
     /// 实测：写一份只含 `model:` 的 patch，dump 出来的 acp 条目里 provider 直接消失。
     /// provider 一旦为空，会话无法解析路由。这条断言把「必须成对写」钉死。
+    ///
+    /// 2026-10-19 起 provider 允许由 `DSH_COGNITERM_PROVIDER` 覆盖（设置页把默认模型
+    /// 指向自定义端点时要能改 provider），所以判据从「等于某个字面量」改成
+    /// 「acp 块里确实有一行 provider 赋值」，并额外要求它带内置回落值——
+    /// 否则「整体替换时漏写 provider」这个原始事故会以新形态复现。
     func testAcpOverrideReplacesWholeConfigSoProviderMustBeRestated() throws {
         let text = try patchText()
         let blocks = text.components(separatedBy: "\n- ")
         guard let acp = blocks.first(where: { $0.hasPrefix("id: acp\n") }) else {
             return XCTFail("patch 里必须显式覆盖 acp 行（ACP 会话模型的控制点）")
         }
-        XCTAssertTrue(acp.contains("provider: deepseek-official"),
+        XCTAssertTrue(acp.contains("provider: "),
                       "patch 整体替换 config，必须同时写回 provider，否则路由解析失败")
+        XCTAssertTrue(acp.contains("process.env.DSH_COGNITERM_PROVIDER"),
+                      "acp 的 provider 必须可被启动环境覆盖，否则默认模型指不到自定义端点")
+        XCTAssertTrue(acp.contains("'\(DefaultModelSelection.deepSeekProvider)'"),
+                      "provider 覆盖必须带内置回落值：不注入环境变量时行为要与旧版一致")
         XCTAssertTrue(acp.contains("model: !!js process.env.DSH_COGNITERM_MODEL || '\(AgentModel.flash.rawValue)'"))
     }
 
-    /// patch 里的 provider 必须与模型选择器共存：模型是用户偏好，
-    /// provider 是 vendored runtime 的事实（只有 deepseek-official 一家）。
-    func testProviderStaysPinnedWhileModelIsVariable() throws {
+    /// provider 与 model 都是**可覆盖 + 有内置回落**，且两处成对绑定。
+    ///
+    /// 旧版本这条断言的是「provider 恒为 deepseek-official」，理由是 vendored runtime
+    /// 只内置了 DeepSeek 一家。挂上自定义端点（本地 vLLM / 内网网关）后这个前提不成立：
+    /// provider 必须能跟着「默认模型」走。但**不注入时必须逐位回到旧行为**，
+    /// 否则升级后所有历史用户的默认会话都会解析失败。
+    func testProviderIsOverridableButFallsBackToBuiltinDeepSeek() throws {
         let text = try patchText()
-        XCTAssertTrue(text.contains("provider: deepseek-official"),
-                      "provider 应保持固定：runtime 只内置了 DeepSeek 一家")
+        let binding = "!!js process.env.DSH_COGNITERM_PROVIDER"
+        XCTAssertEqual(text.components(separatedBy: binding).count - 1, 2,
+                       "provider 绑定应恰好出现 2 处：agent-default-model 与 acp")
+        let fallback = "|| '\(DefaultModelSelection.deepSeekProvider)'"
+        XCTAssertEqual(text.components(separatedBy: fallback).count - 1, 2,
+                       "两处绑定都必须回落到内置 deepseek-official")
     }
 }
