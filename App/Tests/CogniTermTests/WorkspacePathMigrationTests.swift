@@ -5,7 +5,7 @@ import XCTest
 ///
 /// 背景：早期「工作区」是自由输入框，输入 `log` 会被解析成 `$HOME/log` 并静默把工作区
 /// 带到一个放日志的目录（还会建一个同名空目录）。输入框已经删掉（只能走 NSOpenPanel），
-/// 但当时写进 UserDefaults 的那个值还在，实测本机就是 `workspacePath = /Users/Admin/log`：
+/// 但当时写进 UserDefaults 的那个值还在，实测本机就是 `workspacePath = /Users/me/log`：
 /// 侧栏顶着一行 `~/log`、终端起在 `~/log`、历史会话列表也只看得见那批会话。
 final class WorkspacePathMigrationTests: XCTestCase {
 
@@ -41,9 +41,9 @@ final class WorkspacePathMigrationTests: XCTestCase {
 
     /// 只认这一个已知产物：用户自己选过的任何别的路径都不许碰。
     func testLeavesOtherPathsAlone() {
-        var path = "/Users/Admin/aiworkspace/CogniTerm"
+        var path = "/Users/me/work/CogniTerm"
         XCTAssertFalse(WorkspacePaths.repairLegacyResidue(&path, defaults: defaults))
-        XCTAssertEqual(path, "/Users/Admin/aiworkspace/CogniTerm")
+        XCTAssertEqual(path, "/Users/me/work/CogniTerm")
 
         var empty = ""
         XCTAssertFalse(WorkspacePaths.repairLegacyResidue(&empty, defaults: defaults))

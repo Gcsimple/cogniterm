@@ -17,7 +17,7 @@ public struct ModelEndpoint: Codable, Equatable, Identifiable, Sendable {
     /// 路由名，也是 pi-ai 的 provider key（小写连字符，见 `normalizedRouteID`）。
     public var id: String
     public var displayName: String
-    /// 例如 `http://10.100.51.218:18506/v1`，末尾斜杠会被规整掉。
+    /// 例如 `http://localhost:8000/v1`，末尾斜杠会被规整掉。
     public var baseURL: String
     public var models: [ModelSpec]
     /// 本地推理经常几十秒才出第一个 token，pi-ai 默认超时偏短。

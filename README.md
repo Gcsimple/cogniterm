@@ -5,7 +5,7 @@
 一个把 AI agent 和终端缝进同一个窗口的 macOS 原生终端。agent 想执行的命令，最终落在**你能看见、能接管**的那个 PTY 里。
 
 ```
-macOS 14+ · Swift / SwiftUI · SwiftTerm · ACP · MCP · 无 Electron
+macOS 14+ · Swift / SwiftUI · SwiftTerm · ACP · MCP · 无 Electron · MIT
 ```
 
 ---
@@ -149,7 +149,7 @@ App 测试用「编译测试 bundle + `xcrun xctest` 独立运行」的方式跑
 
 1. Settings →「模型端点（本地部署 / 自定义网关）」→ `添加端点…`
 2. 填三样：
-   - **Base URL**（带 `/v1`）：`http://10.100.51.218:18507/v1`
+   - **Base URL**（带 `/v1`）：`http://localhost:8000/v1`
    - **路由名**：会变成 dsh 的 provider key，小写字母 / 数字 / 连字符
    - **API Key**：本地无鉴权可以留空（见下面"占位凭据"）
 3. 点 **从端点拉取模型列表**：直接问 `/v1/models`，别手抄 id。大小写错一个字母就是
@@ -173,7 +173,7 @@ dsh patch 覆盖层传给 `--patch`：
     providers:
       local-qwen:        # 路由名 = pi-ai 的 provider key
         api: openai-completions
-        baseURL: 'http://10.100.51.218:18507/v1'
+        baseURL: 'http://localhost:8000/v1'
         apiKeyEnv: COGNITERM_KEY_LOCAL_QWEN
         models: [{ id: 'Qwen3.8-27B', contextWindow: 262144 }]
 ```
@@ -254,4 +254,7 @@ docs/                 设计文档（研究稿，含决策记录）
 
 ## License
 
-尚未添加 LICENSE 文件。依赖的上游（[SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)、[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)）均为 MIT，本项目与 MIT 兼容的开源协议最为合适——待维护者确定后补充。
+[MIT](LICENSE) © 2026 CogniTerm contributors。
+
+第三方组件的许可与版权声明见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)：
+SwiftTerm（vendored，含一处已注明的本地改动）、DeepSeek Harness 与 Node.js（构建时拉取，不入库）均为 MIT。

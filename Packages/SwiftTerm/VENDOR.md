@@ -1,8 +1,7 @@
 # SwiftTerm（vendored）
 
 这是 [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) 的**精简本地副本**，
-不是完整仓库。由 `scripts/vendor-swiftterm.sh` 生成，**不要手工改 Sources/ 下的任何文件**
-（升级请改脚本里的 TAG/COMMIT/TARBALL_SHA256 后重跑）。
+不是完整仓库，也没有保留上游的 git 历史。
 
 | 项 | 值 |
 |---|---|
@@ -17,5 +16,26 @@
 `Sources/Termcast`、`Plugins/`、`Sources/SwiftTermBuildInfoGenerator`（vendor 期用一次）、
 `swifterm-terminfo`（已烘进生成文件）、`SwiftTermWebWasm` 等。
 
-升级步骤：改脚本头部的 `TAG` / `COMMIT` / `TARBALL_SHA256` → 重跑
-`scripts/vendor-swiftterm.sh` → `scripts/run-tests.sh` → `scripts/build-app.sh`。
+## 本地改动（只有一处）
+
+`Sources/SwiftTerm/Mac/MacTerminalView.swift`：`becomeFirstResponder()` /
+`resignFirstResponder()` 由 `public override` 改为 `open override`。
+
+上游 iOS 侧同名的这两个方法就是 `open`（`iOSTerminalView.swift:2961/2973`），macOS 侧漏写。
+CogniTerm 需要在 `CogniTerminalView` 里覆盖它们来发布键盘焦点（供 Scene 级菜单项做
+`disabled` 判据），`public` 会让模块外覆盖直接编译失败：
+`overriding non-open instance method`。改动处有行内注释，升级时按下面的步骤重新施加即可。
+
+## 升级步骤
+
+```bash
+# 1) 取回固定版本，并校验 sha256 必须等于上表
+curl -fL -o /tmp/swiftterm.tar.gz \
+  https://github.com/migueldeicaza/SwiftTerm/archive/2dad6a1e516f755bed77cf9bbd09455062f54758.tar.gz
+shasum -a 256 /tmp/swiftterm.tar.gz
+
+# 2) 只覆盖 Sources/SwiftTerm 与 LICENSE，其余不动
+# 3) 重新施加上面那处 open 改动（改 TAG/COMMIT 时记得同步本文件的上表）
+# 4) 验证
+scripts/run-tests.sh && scripts/build-app.sh
+```

@@ -3,7 +3,7 @@
 #
 # 为什么需要它（2026-10-16 踩坑后新增）：
 #   - `scripts/dump-profile.sh` 验的是 **profile 合成**（yaml 层），验不了 sb；
-#   - 本机 bash 工具跑在 WorkBuddy 沙箱内，**任何 restrictive profile 都无法用
+#   - 本机 bash 工具跑在 Agent 沙箱内，**任何 restrictive profile 都无法用
 #     sandbox-exec 应用**（sandbox_apply: Operation not permitted），所以在这里
 #     "手敲一条 sandbox-exec 命令试试"永远得不到真结果；
 #   - 但 **LaunchServices 启动的进程不在那个沙箱里**，可以用一个小 .app 当"宿主"，
@@ -83,7 +83,7 @@ cat > "$HOST/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 
-# 宿主 app 的可执行体：由 LaunchServices 派生（不在 WorkBuddy 沙箱内），
+# 宿主 app 的可执行体：由 LaunchServices 派生（不在 Agent 沙箱内），
 # 所以它调用的 sandbox-exec 能真正应用 profile。
 cat > "$HOST/Contents/MacOS/CtSbProbe" <<'HOSTEOF'
 #!/bin/bash

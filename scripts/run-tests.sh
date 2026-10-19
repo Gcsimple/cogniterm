@@ -5,7 +5,7 @@
 # 用法：scripts/run-tests.sh
 #
 # 为什么 App 测试不走 `xcodebuild test` 直跑：
-#   本仓库的 Agent 开发环境（WorkBuddy 沙箱）里，hosted app 测试跑不通——
+#   本仓库的 Agent 开发环境（带沙箱）里，hosted app 测试跑不通——
 #   测试运行器与 app host 之间要建 Mach 连接，沙箱对 mach-register /
 #   mach-lookup 一律拒绝（同环境里 `ps` 同样被禁，即是佐证），表现为
 #   "The test runner hung before establishing connection"（白等 78 分钟）。

@@ -62,7 +62,7 @@ final class ModelEndpointTests: XCTestCase {
         let endpoint = ModelEndpoint(
             id: "Local Qwen",
             displayName: "本地 Qwen3.8-27B",
-            baseURL: "http://10.100.51.218:18506/v1/",
+            baseURL: "http://localhost:8000/v1/",
             models: [ModelSpec(id: "qwen3.8-27b", name: "Qwen3.8-27B", contextWindow: 262144)],
             timeoutMs: 300_000
         )
@@ -72,7 +72,7 @@ final class ModelEndpointTests: XCTestCase {
         XCTAssertTrue(text.contains("- id: llm-pi-ai"))
         XCTAssertTrue(text.contains("\n      local-qwen:\n"))
         XCTAssertTrue(text.contains("api: openai-completions"))
-        XCTAssertTrue(text.contains("baseURL: 'http://10.100.51.218:18506/v1'"), "末尾斜杠必须去掉")
+        XCTAssertTrue(text.contains("baseURL: 'http://localhost:8000/v1'"), "末尾斜杠必须去掉")
         XCTAssertTrue(text.contains("timeoutMs: 300000"))
         XCTAssertTrue(text.contains("- id: 'qwen3.8-27b'"))
         XCTAssertTrue(text.contains("contextWindow: 262144"))

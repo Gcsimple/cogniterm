@@ -173,8 +173,8 @@
 
 **我的建议：B**。C 的收益/复杂度比很差，而且透明度在有聊天区的布局里容易显得脏。
 
-> 实现约束：要新增设置字段，按仓库约定走 **SwiftData 可空字段 + 读路径回落**
-> （见 `.workbuddy/memory/MEMORY.md` 第七节），不能改旧 store 的 schema 语义。
+> 实现约束：要新增设置字段，按仓库约定走 **SwiftData 可空字段 + 读路径回落**，
+> 不能改旧 store 的 schema 语义。
 
 ### 决策点 4：URL / 文本 hints（QuickSelect）
 

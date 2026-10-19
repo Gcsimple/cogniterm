@@ -596,7 +596,7 @@ dsh-llm-deepseek DEFAULT_MODELS → deepseek-flash / deepseek-v4-pro
   200；经本机代理转发也 200。
 - **不是 dsh / patch / 模型 id**。同一条命令行去掉 seatbelt 就能跑成功。
 
-剩下的差异只有**外层 `sandbox-exec -f sidecar.sb`**。本机（WorkBuddy 沙箱内）
+剩下的差异只有**外层 `sandbox-exec -f sidecar.sb`**。当时的环境里（开发用的 Agent 沙箱内）
 无法应用任何 seatbelt 探针（`sandbox_apply: Operation not permitted`，
 `dangerouslyDisableSandbox` 也绕不出去），`log show` 同样被禁
 （`Cannot run while sandboxed`），所以这一步的判定需要人工跑一次：
@@ -746,7 +746,7 @@ sb 末尾那三行外来残留（`aha-sandbox-seatbelt-bridge` /
 
 ### 决定性的实验装置：拿 LaunchServices 当宿主
 
-关键洞察：**WorkBuddy 的沙箱只覆盖它的进程树；LaunchServices 派生的进程不在里面。**
+关键洞察：**开发环境里 Agent 的沙箱只覆盖它的进程树；LaunchServices 派生的进程不在里面。**
 于是可以造一个最小 `.app`（`Info.plist` + 一个 bash 脚本当 `CFBundleExecutable`，
 `codesign -s -` 临时签一下），`open` 它 —— 它跑在沙箱外，**它调用的 `sandbox-exec`
 就能真正应用 seatbelt**，结果写回 `/tmp` 供读取。
@@ -840,7 +840,7 @@ sb 现在**不限制目标端口**了（这是本机 SBPL 的硬约束，不是�
 > 而"连上了但被拒"和"根本没解析出地址"在排障上是两件完全不同的事。
 > 这也是为什么本轮的产物之一是一个**能把真因打出来的探针**，而不是一次性的调试代码。
 >
-> **没有观测面就先造观测面。** WorkBuddy 沙箱禁掉了 `sandbox-exec` / `log show` / `ps`，
+> **没有观测面就先造观测面。** 开发沙箱禁掉了 `sandbox-exec` / `log show` / `ps`，
 > 看起来"这条路不通"；但换一个**进程宿主**（LaunchServices 派生的小 .app）就绕开了 ——
 > 关键在于意识到"沙箱只覆盖进程树"，而不是只在原上下文里换命令。
 

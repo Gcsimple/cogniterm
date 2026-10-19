@@ -15,6 +15,7 @@ App/Resources/runtime/
 xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
+*.xcuserstate
 
 # ---- dsh 用户态目录（profiles / 会话 JSONL / 日志）----
 dsh-home/
@@ -29,6 +30,14 @@ secrets.yml
 # ---- 日志与临时文件 ----
 *.log
 *.tmp
+*.orig
+*.rej
+*.swp
+
+# ---- 依赖与编辑器 ----
+node_modules/
+.vscode/
+.idea/
 
 # ---- macOS ----
 .DS_Store

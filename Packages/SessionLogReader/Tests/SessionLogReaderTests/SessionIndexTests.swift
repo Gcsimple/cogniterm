@@ -36,7 +36,7 @@ final class SessionIndexTests: XCTestCase {
     private func makeSession(id: String,
                              title: String?,
                              count: Int,
-                             cwd: String = "/Users/Admin/CogniTerm",
+                             cwd: String = "/Users/me/CogniTerm",
                              createdAt ms: Double = 1_792_289_176_644,
                              trajectoryBytes: Int = 2048,
                              modified: Date = Date(timeIntervalSince1970: 1_792_300_000),
@@ -86,7 +86,7 @@ final class SessionIndexTests: XCTestCase {
         XCTAssertEqual(item.sessionId, id)
         XCTAssertEqual(item.title, "目录下有什么文件")
         XCTAssertEqual(item.displayTitle, "目录下有什么文件")
-        XCTAssertEqual(item.cwd, "/Users/Admin/CogniTerm")
+        XCTAssertEqual(item.cwd, "/Users/me/CogniTerm")
         XCTAssertEqual(item.userMessageCount, 2)
         XCTAssertFalse(item.isBlank)
         XCTAssertEqual(item.createdAt?.timeIntervalSince1970 ?? 0, 1_792_289_176.644, accuracy: 0.01)

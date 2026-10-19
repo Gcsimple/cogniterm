@@ -227,7 +227,7 @@ final class SidecarEnvironmentTests: XCTestCase {
     /// "transport failed"，且 34ms 就失败（不是超时，是立刻被拒）。
     ///
     /// 这条断言只是**防回归重写**；真正的验证是 `scripts/probe-sandbox-network.sh`
-    /// （用 LaunchServices 派生的小 .app 当宿主，绕过 WorkBuddy 沙箱，真实应用 seatbelt）。
+    /// （用 LaunchServices 派生的小 .app 当宿主，绕过开发环境的 Agent 沙箱，真实应用 seatbelt）。
     func testSandboxNetworkRulesDoNotUseRemoteFilters() throws {
         let sb = try repoFile("Resources/sandbox/sidecar.sb")
         // 去掉行内注释：本文件的网络块里用大段注释记录了这段踩坑，注释里当然会出现

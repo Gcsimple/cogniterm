@@ -51,7 +51,7 @@ final class SessionStoreTests: XCTestCase {
                 "version": 7,
                 "record": [
                     "identity": ["formatVersion": 4, "createdAt": 1_792_289_176_644,
-                                 "cwd": "/Users/Admin/CogniTerm"],
+                                 "cwd": "/Users/me/CogniTerm"],
                     "rows": ["title": ["ver": 1, "val": title],
                              "titleInput": ["ver": 3, "val": ["count": count]]],
                 ],

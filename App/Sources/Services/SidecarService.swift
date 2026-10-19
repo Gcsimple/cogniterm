@@ -696,7 +696,7 @@ final class SidecarService: ObservableObject {
 
     /// 路径比较用：解析符号链接 + 去尾斜杠。
     ///
-    /// 不这么做的话 `/tmp/x` 与 `/private/tmp/x`、`/Users/Admin/CogniTerm/` 与
+    /// 不这么做的话 `/tmp/x` 与 `/private/tmp/x`、`/Users/me/CogniTerm/` 与
     /// 不带斜杠的写法会被判成两个工作区，历史列表就空给你看。
     static func canonicalPath(_ path: String) -> String {
         URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path

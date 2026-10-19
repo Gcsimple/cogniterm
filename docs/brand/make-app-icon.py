@@ -21,7 +21,7 @@
   2. 白色字形压在近白底板上会糊，符号必须整体反相成深色/高饱和色。
 
 用法（需要本机装有 Google Chrome，用它逐尺寸直渲，避免位图缩放损失）：
-    /Users/Admin/.workbuddy/binaries/python/envs/default/bin/python docs/brand/make-app-icon.py
+    python3 docs/brand/make-app-icon.py
 """
 import os
 import subprocess

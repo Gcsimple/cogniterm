@@ -233,7 +233,7 @@ struct EndpointEditorView: View {
                 }
 
                 Section("连接") {
-                    TextField("Base URL", text: $draft.baseURL, prompt: Text("http://10.100.51.218:18506/v1"))
+                    TextField("Base URL", text: $draft.baseURL, prompt: Text("http://localhost:8000/v1"))
                     SecureField("API Key（本地无鉴权可留空）", text: $apiKey,
                                 prompt: Text(draft.apiKeyAccount == nil ? "未设置" : "已保存在 Keychain，留空不修改"))
                     TextField("超时（毫秒）", text: $timeoutText)
