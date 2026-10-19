@@ -56,6 +56,12 @@ struct MainSplitView: View {
             if workspacePath.isEmpty {
                 workspacePath = SidecarService.defaultWorkspaceURL().path
             }
+            // 旧版路径输入框把 `log` 解析成 `$HOME/log` 留下的残留，见 WorkspacePaths。
+            var repaired = workspacePath
+            if WorkspacePaths.repairLegacyResidue(&repaired) {
+                workspacePath = repaired
+                conversation.appendSystem("工作区已从 ~/log 恢复到默认的 ~/CogniTerm（旧版路径输入框的遗留值，改一次即记住）")
+            }
             conversation.workspaceRoot = workspacePath
             // ⚠️ sidecar.workspaceRoot 必须在这里显式赋值。旧实现只在 applyWorkspace()
             // 里设它，首启时保持字段默认值 $HOME——于是 sidebar 里显示的路径和
@@ -66,6 +72,10 @@ struct MainSplitView: View {
             loadRules()
             loadSettings()
             terminal.start(root: URL(fileURLWithPath: workspacePath))
+            // 恢复上次的终端现场（手开的 SSH 标签）。放在 start 之后：
+            // 本地 shell 先起来，恢复出来的远程标签排在它后面。
+            // 只做一次，重复调用是幂等的（SessionManager 内部有 didRestore 标记）。
+            sessions.restoreWorkspaceIfNeeded(root: FileManager.default.homeDirectoryForCurrentUser)
             // 终端 MCP server：agent 的 run_in_terminal 工具经它在我们的 PTY 上
             // 执行（审批门 = conversation，执行平面 = SessionManager 的活跃会话）。
             // sidecar.start() 会在 session/new 前启动它并注册 mcpServers；这里先把依赖接好。

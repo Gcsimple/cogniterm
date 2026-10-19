@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import AcpClient
 import Persistence
+import SessionLogReader
 
 /// 左侧栏：只有「上下文 / 会话 / 底栏」三段。
 ///
@@ -28,13 +29,17 @@ struct SidebarView: View {
     var onChooseWorkspace: () -> Void
     var onReplayJSONL: () -> Void
 
-    @State private var recentHistory: [SessionInfo] = []
-    @State private var historyLoading = false
-    @State private var didLoadHistory = false
+    @State private var recent: [SessionSummary] = []
+    @State private var previewTarget: SessionPreview?
+    /// 正在解压/归约的会话 id（行上显示小转圈，避免点了没反馈）。
+    @State private var previewLoading: String?
+    @State private var previewError: String?
     @State private var showHistorySheet = false
     @State private var showContextDetails = false
     @State private var showAdvanced = false
     @State private var showSessionConfig = false
+    /// 等待确认删除的会话。删除本身不可怕，可怕的是"点了就没了"——先问一句。
+    @State private var pendingDelete: SessionSummary?
 
     /// 侧栏只露最近 N 条：历史会一直长，侧栏高度不能被它无限撑开。
     private static let recentLimit = 5
@@ -63,23 +68,46 @@ struct SidebarView: View {
                     currentSessionRow
                 }
 
-                Section("历史") {
-                    historySection
+                Section("最近会话") {
+                    recentSection
                 }
             }
             .listStyle(.sidebar)
             Divider()
             footer
         }
-        .task { await loadHistoryIfNeeded() }
-        // 新建 / 恢复会话后 `sessionID` 会变：历史列表要跟着长出来，
+        // 本地索引是读盘，几十毫秒级：不再需要"加载中"状态机，进侧栏就刷。
+        .task { reloadRecent() }
+        // 新建 / 恢复 / 聊完一轮后 sessionID 会变：列表要跟着长出来，
         // 否则用户得重启 app 才能看到刚聊过的那条。
-        .onChange(of: sidecar.sessionID) { _, _ in
-            Task { await reloadHistory() }
+        .onChange(of: sidecar.sessionID) { _, _ in reloadRecent() }
+        .onChange(of: sidecar.status) { _, _ in reloadRecent() }
+        // 弹层里删过东西，关掉时侧栏要跟着更新（弹层自己只管它那份列表）。
+        .onChange(of: showHistorySheet) { _, isOpen in
+            if !isOpen { reloadRecent() }
+        }
+        .confirmationDialog(
+            pendingDelete.map { "把「\($0.displayTitle)」移到废纸篓？" } ?? "",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("移到废纸篓", role: .destructive) { confirmDelete() }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("会话轨迹会进废纸篓，可以恢复；列表里不再显示这条。")
         }
         .sheet(isPresented: $showHistorySheet) {
-            HistorySheet(sidecar: sidecar) { info in
-                recentHistory = recentHistory.map { $0.sessionId == info.sessionId ? info : $0 }
+            RecentSessionsSheet(sidecar: sidecar) { summary in
+                // 全量列表里点一条，走的也是"先看再决定"的预览，不是直接 resume。
+                openPreview(summary)
+            }
+        }
+        .sheet(item: $previewTarget) { target in
+            SessionPreviewSheet(sidecar: sidecar, target: target) {
+                Task { await sidecar.resumeSession(target.summary) }
             }
         }
     }
@@ -261,6 +289,16 @@ struct SidebarView: View {
             }
         }
         .padding(.vertical, 1)
+        .contextMenu {
+            // 会话 id 从正文挪到这里：需要它的人（报 bug、翻日志）拿得到，
+            // 不需要的人不会被一串十六进制打扰。
+            Button("复制会话 id") {
+                guard let id = sidecar.sessionID else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(id, forType: .string)
+            }
+            .disabled(sidecar.sessionID == nil)
+        }
     }
 
     private var currentTitle: String {
@@ -280,41 +318,60 @@ struct SidebarView: View {
             let percent = Int((Double(usage.used) / Double(usage.size) * 100).rounded())
             parts.append("上下文 \(percent)%")
         }
-        if let short = sidecar.sessionID?.prefix(8), !short.isEmpty {
-            parts.append(String(short))
-        }
+        // 这里**不再拼会话 id 前 8 位**。它是 UUID 片段，对人没有任何信息量，
+        // 却占着副标题最显眼的位置——同一个毛病在「最近会话」里刚被用户点掉。
+        // id 仍然可得：右键复制，或弹层里的 serverInfo。
         return parts.joined(separator: " · ")
     }
 
-    // MARK: - 历史
+    // MARK: - 最近会话
 
+    /// 侧栏的「最近会话」。
+    ///
+    /// 与旧版的三个差别（旧版被用户当场否掉："对 terminal 场景没用，UUID 索引不实用"）：
+    ///   1. 标题来自 dsh 自己的 projcache（= 首条用户消息），不再显示 UUID 前缀；
+    ///   2. 空会话（建了但没说过话，本机占 56%）默认不列；
+    ///   3. 点一下**先看轨迹**再决定要不要在这个上下文里继续——因为
+    ///      `session/resume` 不回放历史消息，直接 resume 等于恢复了一段看不见的对话。
     @ViewBuilder
-    private var historySection: some View {
-        if historyLoading && recentHistory.isEmpty {
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("读取中…")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-        } else if recentHistory.isEmpty {
-            Text("当前工作区还没有历史会话")
+    private var recentSection: some View {
+        if let previewError {
+            Text(previewError)
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.red)
+                .lineLimit(2)
+        }
+
+        if recent.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(emptyHistoryText)
+                    .font(.caption)
+                Text("空会话（没说过话的）不显示")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
         } else {
-            ForEach(recentHistory.prefix(Self.recentLimit)) { info in
+            ForEach(recent.prefix(Self.recentLimit)) { summary in
                 Button {
-                    Task { await sidecar.resumeSession(info) }
+                    openPreview(summary)
                 } label: {
-                    historyRow(info)
+                    recentRow(summary)
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    Button("预览") { openPreview(summary) }
+                    // 当前会话不在这里给删除入口：dsh 内存里还挂着它，删了目录只会在
+                    // 下次 resume 时炸掉。要清就先用「新会话」把上下文换掉。
+                    if summary.sessionId != sidecar.sessionID {
+                        Button("移到废纸篓…", role: .destructive) { pendingDelete = summary }
+                    }
+                }
             }
             Button {
                 showHistorySheet = true
             } label: {
                 HStack(spacing: 4) {
-                    Text("查看全部 \(recentHistory.count) 条")
+                    Text("查看全部 \(recent.count) 条")
                     Image(systemName: "chevron.right").font(.system(size: 8))
                 }
                 .font(.caption2)
@@ -323,55 +380,87 @@ struct SidebarView: View {
         }
     }
 
-    /// 历史行做成**单行**：这些会话几乎都在同一个工作区，副标题一整列 `~/log`
-    /// 只占高度不提供信息。路径只在「不属于当前工作区」时才露出来——那正是
-    /// 用户需要区分的时候。
-    private func historyRow(_ info: SessionInfo) -> some View {
+    private var emptyHistoryText: String {
+        sidecar.status == .ready
+            ? "这个工作区还没有对话"
+            : "连接后显示这个工作区的对话"
+    }
+
+    /// 单行：左边标题（可读），右边相对时间。
+    ///
+    /// 不显示 UUID、也不显示 cwd：这些会话按定义都在当前工作区（跨工作区的会被
+    /// 过滤掉，因为 resume 会校验 cwd），一列 `~/CogniTerm` 只占地方不提供信息。
+    private func recentRow(_ summary: SessionSummary) -> some View {
         HStack(spacing: 6) {
-            // dsh 0.2 的 session/list 实测只填 sessionId/cwd（title 与 updatedAt 都是
-            // nil），所以主行只能给编号——但要说清「这是编号」，不能让人以为那是标题。
-            Text(info.title ?? "会话 \(info.sessionId.prefix(8))")
+            if previewLoading == summary.sessionId {
+                ProgressView().controlSize(.small).scaleEffect(0.6)
+            }
+            Text(summary.displayTitle)
                 .font(.caption)
                 .lineLimit(1)
+                .truncationMode(.tail)
             Spacer(minLength: 4)
-            if let trailing = historyTrailing(info) {
-                Text(trailing)
+            if let when = Self.relativeTime(summary.lastActivity ?? summary.createdAt) {
+                Text(when)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
-                    .truncationMode(.head)
             }
         }
         .padding(.vertical, 1)
     }
 
-    private func historyTrailing(_ info: SessionInfo) -> String? {
-        if let updated = info.updatedAt, !updated.isEmpty {
-            return Self.shortDate(updated)
+    /// 解压 + 归约后弹预览。失败只提示，不影响列表。
+    private func openPreview(_ summary: SessionSummary) {
+        previewError = nil
+        previewLoading = summary.sessionId
+        Task {
+            defer { previewLoading = nil }
+            do {
+                let state = try await sidecar.replayState(for: summary)
+                previewTarget = SessionPreview(summary: summary, state: state)
+            } catch {
+                previewError = "\(summary.displayTitle)：\(error.localizedDescription)"
+            }
         }
-        guard let cwd = info.cwd, !cwd.isEmpty else { return nil }
-        let short = abbreviateHome(cwd)
-        return short == workspaceName ? nil : short
     }
 
-    private static func shortDate(_ raw: String) -> String {
-        guard let date = ISO8601DateFormatter().date(from: raw) else { return raw }
-        let formatter = DateFormatter()
-        formatter.dateFormat = Calendar.current.isDateInToday(date) ? "HH:mm" : "MM-dd"
-        return formatter.string(from: date)
+    /// 相对时间：7 天内用「3 小时前」，更早的用日期。永不返回 nil 之外的噪音。
+    static func relativeTime(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        let age = Date().timeIntervalSince(date)
+        if age < 60 { return "刚刚" }
+        if age > 7 * 24 * 3600 {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.string(from: date)
+        }
+        return relativeFormatter.localizedString(for: date, relativeTo: Date())
     }
 
-    private func loadHistoryIfNeeded() async {
-        guard !didLoadHistory else { return }
-        didLoadHistory = true
-        await reloadHistory()
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        return formatter
+    }()
+
+    /// 读本地索引。同步、几十毫秒，所以不需要 loading 状态。
+    private func reloadRecent() {
+        recent = sidecar.recentSessions()
     }
 
-    private func reloadHistory() async {
-        guard sidecar.sessionID != nil else { return }
-        historyLoading = true
-        defer { historyLoading = false }
-        recentHistory = (try? await sidecar.listHistory()) ?? []
+    /// 确认后真正动手：移入废纸篓 + 刷新列表。失败只提示，不弹崩溃。
+    private func confirmDelete() {
+        guard let target = pendingDelete else { return }
+        pendingDelete = nil
+        do {
+            try sidecar.deleteSession(target)
+            if previewTarget?.summary.sessionId == target.sessionId { previewTarget = nil }
+            previewError = nil
+            reloadRecent()
+        } catch {
+            previewError = "删除失败：\(error.localizedDescription)"
+        }
     }
 
     // MARK: - 底栏
@@ -644,129 +733,264 @@ private func abbreviateHome(_ path: String) -> String {
     return path
 }
 
-/// 历史会话全量列表（侧栏只露最近几条，全量在这里搜）。
+/// 会话预览：解压轨迹 → 归约 → 回放，然后才让用户决定要不要"在这个上下文里继续"。
+struct SessionPreview: Identifiable {
+    let summary: SessionSummary
+    let state: SessionViewState
+    var id: String { summary.sessionId }
+}
+
+struct SessionPreviewSheet: View {
+    let sidecar: SidecarService
+    let target: SessionPreview
+    var onContinue: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 0) {
+            SessionReplayView(state: target.state, title: target.summary.displayTitle)
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Text(metaLine)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Button("关闭") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button("在此上下文继续") {
+                    onContinue()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!canContinue)
+                .help(continueHint)
+            }
+            .padding(12)
+        }
+        .frame(width: 780, height: 620)
+    }
+
+    /// 能不能在这里继续。两个门槛：连接就绪（否则没人接单），以及**工作区一致**——
+    /// dsh 的 `session/resume` 会校验 cwd，跨工作区的会话硬 resume 只会失败。
+    private var canContinue: Bool {
+        sidecar.status == .ready && sidecar.canResume(target.summary)
+    }
+
+    private var continueHint: String {
+        if sidecar.status != .ready { return "sidecar 未连接时无法接续" }
+        if !sidecar.canResume(target.summary) {
+            return "这条会话属于另一个工作区（\(target.summary.cwd ?? "未知")），dsh 会拒绝 resume；可以看、可以复制、可以删"
+        }
+        return "接续这条会话继续聊（不会重放上面的内容）"
+    }
+
+    private var metaLine: String {
+        var parts: [String] = []
+        if let created = target.summary.createdAt {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            parts.append(formatter.string(from: created))
+        }
+        parts.append("\(target.summary.userMessageCount) 条你的消息")
+        if let trajectory = target.summary.trajectory {
+            parts.append(trajectory.deletingLastPathComponent().lastPathComponent)
+        }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// 最近会话全量列表（侧栏只露最近几条，全量在这里搜）。
 ///
 /// 单独一张表而不是侧栏内滚动：历史会无限增长，塞进侧栏要么撑爆高度要么变成
 /// 一个又窄又长的嵌套滚动区，两边都不好用。
-struct HistorySheet: View {
+///
+/// 数据源是**本地落盘索引**（projcache + 轨迹 mtime），不是 ACP 的 `session/list`：
+/// 后者把标题和 createdAt 裁掉了，只剩 UUID。
+struct RecentSessionsSheet: View {
     @ObservedObject var sidecar: SidecarService
-    /// 恢复成功后回调（侧栏据此更新「最近」列表），随后自动关闭。
-    var onResume: (SessionInfo) -> Void
+    /// 选中一条 → 交给侧栏走"先看再决定"的预览流程。
+    var onPick: (SessionSummary) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    @State private var sessions: [SessionInfo] = []
-    @State private var loading = false
+    @State private var sessions: [SessionSummary] = []
     @State private var query = ""
-    @State private var errorText: String?
+    @State private var showBlank = false
+    /// 默认只看当前工作区（那些才 resume 得动）；关掉是为了清理旧工作区留下的会话。
+    @State private var onlyCurrentWorkspace = true
+    @State private var pendingDelete: SessionSummary?
+    @State private var deleteError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                Text("历史会话")
+                Text("最近会话")
                     .font(.headline)
+                Text("\(visible.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Spacer()
-                if loading { ProgressView().controlSize(.small) }
                 Button {
-                    Task { await load() }
+                    reload()
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
-                .help("重新读取（session/list）")
+                .help("重新扫描本地会话目录")
                 Button("关闭") { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
             .padding(16)
 
-            TextField("按标题 / 路径 / 会话 id 过滤", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-
-            if let errorText {
-                Text(errorText)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
+            HStack(spacing: 10) {
+                TextField("按标题或路径过滤", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                Toggle("只看当前工作区", isOn: $onlyCurrentWorkspace)
+                    .toggleStyle(.checkbox)
+                Toggle("显示空会话", isOn: $showBlank)
+                    .toggleStyle(.checkbox)
             }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
 
-            List(filtered) { info in
-                Button {
-                    Task {
-                        await sidecar.resumeSession(info)
-                        onResume(info)
+            if visible.isEmpty {
+                Text(sessions.isEmpty ? "这个工作区还没有对话" : "没有匹配的会话")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(visible) { summary in
+                    Button {
+                        onPick(summary)
                         dismiss()
+                    } label: {
+                        row(summary)
                     }
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(info.title ?? "会话 \(info.sessionId.prefix(10))")
-                            .font(.body)
-                            .lineLimit(1)
-                        Text(meta(info))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button("复制会话 id") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(info.sessionId, forType: .string)
-                    }
-                    if let cwd = info.cwd {
-                        Button("复制工作区路径") {
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button("复制会话 id") {
                             NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(cwd, forType: .string)
+                            NSPasteboard.general.setString(summary.sessionId, forType: .string)
+                        }
+                        if let cwd = summary.cwd {
+                            Button("复制工作区路径") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(cwd, forType: .string)
+                            }
+                        }
+                        Divider()
+                        if summary.sessionId == sidecar.sessionID {
+                            Text("当前会话不能删")
+                        } else {
+                            Button("移到废纸篓…", role: .destructive) { pendingDelete = summary }
                         }
                     }
                 }
+                .listStyle(.inset)
             }
-            .listStyle(.inset)
 
-            // dsh 0.2 的 session/list 只回 sessionId/cwd，没有标题也没有时间。
-            // 与其假装有标题，不如说清这里的编号就是 dsh 的会话 id。
-            Text("dsh 未提供会话标题与时间；列表按服务端顺序，编号即会话 id（右键可复制）。")
+            if let deleteError {
+                Text(deleteError)
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+            }
+
+            Text("标题来自 dsh 本地写的首条用户消息；空会话默认隐藏。点一条先看轨迹，再决定要不要在该上下文继续——跨工作区的会话看得到、删得掉，但 resume 会被 dsh 拒绝。")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
         }
-        .frame(width: 560, height: 460)
-        .task { await load() }
-    }
-
-    private var filtered: [SessionInfo] {
-        let needle = query.trimmingCharacters(in: .whitespaces)
-        guard !needle.isEmpty else { return sessions }
-        return sessions.filter { info in
-            (info.title ?? "").localizedCaseInsensitiveContains(needle)
-                || (info.cwd ?? "").localizedCaseInsensitiveContains(needle)
-                || info.sessionId.localizedCaseInsensitiveContains(needle)
+        .frame(width: 620, height: 520)
+        .task { reload() }
+        .onChange(of: showBlank) { _, _ in reload() }
+        .onChange(of: onlyCurrentWorkspace) { _, _ in reload() }
+        .confirmationDialog(
+            pendingDelete.map { "把「\($0.displayTitle)」移到废纸篓？" } ?? "",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("移到废纸篓", role: .destructive) { confirmDelete() }
+            Button("取消", role: .cancel) { pendingDelete = nil }
+        } message: {
+            Text("会话轨迹会进废纸篓，可以恢复；列表里不再显示这条。")
         }
     }
 
-    private func meta(_ info: SessionInfo) -> String {
+    private func confirmDelete() {
+        guard let target = pendingDelete else { return }
+        pendingDelete = nil
+        do {
+            try sidecar.deleteSession(target)
+            deleteError = nil
+            reload()
+        } catch {
+            deleteError = "删除失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func row(_ summary: SessionSummary) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(summary.displayTitle)
+                    .font(.body)
+                    .lineLimit(1)
+                    .foregroundStyle(summary.isBlank ? .secondary : .primary)
+                Text(meta(summary))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 6)
+            if let when = SidebarView.relativeTime(summary.lastActivity ?? summary.createdAt) {
+                Text(when)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private func meta(_ summary: SessionSummary) -> String {
         var parts: [String] = []
-        if let cwd = info.cwd, !cwd.isEmpty { parts.append(abbreviateHome(cwd)) }
-        if let updated = info.updatedAt, !updated.isEmpty { parts.append(updated) }
-        parts.append(info.sessionId)
+        if summary.isBlank {
+            parts.append("空会话")
+        } else {
+            parts.append("\(summary.userMessageCount) 条你的消息")
+        }
+        // 这份列表按定义只含当前工作区的会话（resume 会校验 cwd），所以每行都写一遍
+        // `~/CogniTerm` 纯属噪音。只有跨工作区时才值得标出来（目前不会发生，留作兜底）。
+        if let cwd = summary.cwd, !cwd.isEmpty,
+           SidecarService.canonicalPath(cwd)
+            != SidecarService.canonicalPath(sidecar.workspaceRoot.path) {
+            parts.append(abbreviateHome(cwd))
+        }
         return parts.joined(separator: " · ")
     }
 
-    private func load() async {
-        loading = true
-        errorText = nil
-        defer { loading = false }
-        do {
-            sessions = try await sidecar.listHistory()
-            if sessions.isEmpty { errorText = "当前工作区没有历史会话" }
-        } catch {
-            errorText = "读取历史会话失败：\(error)"
+    private var visible: [SessionSummary] {
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return sessions }
+        return sessions.filter { summary in
+            summary.displayTitle.localizedCaseInsensitiveContains(needle)
+                || (summary.cwd ?? "").localizedCaseInsensitiveContains(needle)
+                || summary.sessionId.localizedCaseInsensitiveContains(needle)
         }
+    }
+
+    private func reload() {
+        sessions = sidecar.recentSessions(includeBlank: showBlank,
+                                          onlyCurrentWorkspace: onlyCurrentWorkspace)
     }
 }

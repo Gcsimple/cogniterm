@@ -27,18 +27,32 @@ final class SessionManager: ObservableObject {
     /// **SessionManager**，不转发的话活跃会话的 status / title 变了它们不刷新。
     private var activeObservation: AnyCancellable?
 
+    /// 现场恢复只做一次：视图重建时会再次调用，重复恢复会开出一串重复标签。
+    private var didRestoreWorkspace = false
+
+    /// 终端现场的落盘位置。**nil = 不落盘**。
+    ///
+    /// 只有进程级单例（真实 App）才落盘；测试用 `init(local:)` 建实例时不写文件，
+    /// 否则跑一次测试就会把用户上次的标签组合覆盖成测试数据。
+    private let workspaceFileURL: URL?
+
     private init() {
         // 本地会话由 TerminalSession.shared 提供（Scene 菜单在列表出现前就引用它）。
         let local = TerminalSession.shared
         sessions = [local]
         activeSessionID = local.id
+        workspaceFileURL = TerminalWorkspaceStore.defaultFileURL()
         observeActive()
     }
 
     /// 测试专用：用独立实例构建，避免污染进程级单例的会话列表。
-    init(local: TerminalSession) {
+    ///
+    /// - Parameter workspaceFileURL: 传路径才把标签组合落盘（测试用它验恢复逻辑，
+    ///   同时不碰真实配置）。默认 nil = 纯内存。
+    init(local: TerminalSession, workspaceFileURL: URL? = nil) {
         sessions = [local]
         activeSessionID = local.id
+        self.workspaceFileURL = workspaceFileURL
         observeActive()
     }
 
@@ -80,16 +94,62 @@ final class SessionManager: ObservableObject {
     ///     而工作区路径对它毫无意义。
     @discardableResult
     func openSSHSession(target: SSHTarget, label: String, root: URL) -> TerminalSession {
+        let session = addSSHSession(target: target, label: label, root: root, activate: true)
+        persistWorkspace()
+        return session
+    }
+
+    /// 建一个 SSH 会话但**不一定是用户点的**（恢复现场时不抢焦点）。
+    @discardableResult
+    private func addSSHSession(target: SSHTarget,
+                               label: String,
+                               root: URL,
+                               activate: Bool) -> TerminalSession {
         let session = TerminalSession(kind: .ssh, label: label, sshTarget: target)
         sessions.append(session)
-        activeSessionID = session.id
-        observeActive()
+        if activate {
+            activeSessionID = session.id
+            observeActive()
+        }
         session.start(root: root)
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 80_000_000)
-            self?.activeSession.focusTerminal()
+        if activate {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                self?.activeSession.focusTerminal()
+            }
         }
         return session
+    }
+
+    // MARK: - 终端现场（上次的标签组合）
+
+    /// 恢复上次的终端标签。只恢复 SSH —— 本地会话恒在首位且不可关闭。
+    ///
+    /// 与 `recentSessions` 的分工：那是 **agent 对话**的历史（回去继续聊），
+    /// 这是 **终端现场**（上次开着哪些机器）。terminal 产品真正想恢复的是后者。
+    ///
+    /// 只在首次出现时恢复一次；`didRestoreWorkspace` 防重复（视图可能重建）。
+    func restoreWorkspaceIfNeeded(root: URL) {
+        guard !didRestoreWorkspace, let workspaceFileURL else { return }
+        didRestoreWorkspace = true
+        guard let snapshot = TerminalWorkspaceStore.load(from: workspaceFileURL) else { return }
+
+        for tab in snapshot.tabs {
+            // 被手改坏的条目直接跳过：宁可少恢复一个标签，也不把坏参数喂给 ssh。
+            guard let target = tab.target else { continue }
+            addSSHSession(target: target, label: tab.label, root: root, activate: false)
+        }
+        persistWorkspace()
+    }
+
+    /// 把当前 SSH 标签写盘。本地会话不入档（它一定存在）。
+    private func persistWorkspace() {
+        guard let workspaceFileURL else { return }
+        let tabs = sessions.compactMap { session -> StoredTerminalTab? in
+            guard session.kind == .ssh, let target = session.sshTarget else { return nil }
+            return StoredTerminalTab(label: session.label, target: target)
+        }
+        TerminalWorkspaceStore.save(.init(tabs: tabs), to: workspaceFileURL)
     }
 
     /// 关闭会话（本地会话不允许关闭：它是 agent 的默认执行平面）。
@@ -103,6 +163,7 @@ final class SessionManager: ObservableObject {
             observeActive()
         }
         closing.terminate()
+        persistWorkspace()
     }
 
     /// 选中会话的展示名（菜单/状态栏用）。

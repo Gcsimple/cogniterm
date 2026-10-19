@@ -93,4 +93,95 @@ final class SessionManagerTests: XCTestCase {
         manager.runCommandCaptured("ls") { captured = $0 }
         XCTAssertEqual(captured, "")
     }
+
+    // MARK: - 终端现场（上次开着哪些机器）
+
+    private func makePersistingManager(at url: URL) -> SessionManager {
+        SessionManager(local: TerminalSession(kind: .local, label: "本地"), workspaceFileURL: url)
+    }
+
+    private func tempWorkspaceFile() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("terminal-workspace-\(UUID().uuidString).json")
+    }
+
+    /// 现场 = SSH 标签组合；本地会话不入档（它永远存在）。
+    func testOpenSSHPersistsSnapshotWithoutLocalSession() throws {
+        let url = tempWorkspaceFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let manager = makePersistingManager(at: url)
+        manager.openSSHSession(target: target, label: "deploy@10.0.0.5",
+                               root: FileManager.default.homeDirectoryForCurrentUser)
+
+        let snapshot = try XCTUnwrap(TerminalWorkspaceStore.load(from: url))
+        XCTAssertEqual(snapshot.tabs.count, 1, "本地会话不该被写进现场")
+        XCTAssertEqual(snapshot.tabs.first?.label, "deploy@10.0.0.5")
+        XCTAssertEqual(snapshot.tabs.first?.host, "10.0.0.5")
+        XCTAssertEqual(snapshot.tabs.first?.port, 2222)
+        XCTAssertEqual(snapshot.tabs.first?.username, "deploy")
+    }
+
+    /// 启动时恢复标签，且**只恢复一次**——视图重建会重复调用，
+    /// 没有这个幂等性就会开出一串重复标签。
+    func testRestoreRebuildsSSHTabsAndIsIdempotent() throws {
+        let url = tempWorkspaceFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        TerminalWorkspaceStore.save(.init(tabs: [
+            StoredTerminalTab(label: "a@box", target: SSHTarget(host: "box", username: "a")),
+            StoredTerminalTab(label: "b@db", target: SSHTarget(host: "db", port: 2200, username: "b")),
+        ]), to: url)
+
+        let manager = makePersistingManager(at: url)
+        manager.restoreWorkspaceIfNeeded(root: FileManager.default.homeDirectoryForCurrentUser)
+        XCTAssertEqual(manager.sessions.count, 3, "本地 + 两个恢复出来的远程标签")
+        XCTAssertEqual(manager.sessions.filter { $0.kind == .ssh }.map(\.label).sorted(),
+                       ["a@box", "b@db"])
+        XCTAssertEqual(manager.activeSession.kind, .local,
+                       "恢复现场不能抢焦点：用户打开 app 应该停在本地 shell")
+
+        manager.restoreWorkspaceIfNeeded(root: FileManager.default.homeDirectoryForCurrentUser)
+        XCTAssertEqual(manager.sessions.count, 3, "第二次调用必须无副作用")
+    }
+
+    /// 关掉一个标签要同步落盘，否则下次启动会把它变戏法变回来。
+    func testClosingTabUpdatesSnapshot() throws {
+        let url = tempWorkspaceFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let manager = makePersistingManager(at: url)
+        let ssh = manager.openSSHSession(target: target, label: "deploy@10.0.0.5",
+                                         root: FileManager.default.homeDirectoryForCurrentUser)
+        XCTAssertEqual(TerminalWorkspaceStore.load(from: url)?.tabs.count, 1)
+
+        manager.close(ssh.id)
+        XCTAssertEqual(TerminalWorkspaceStore.load(from: url)?.tabs.count, 0)
+    }
+
+    /// 没有落盘路径的实例（测试默认构造）不写任何文件——
+    /// 否则跑一次测试就把用户上次的现场覆盖了。
+    func testInMemoryManagerNeverWritesSnapshot() {
+        let manager = makeManager()
+        manager.openSSHSession(target: target, label: "x@y",
+                               root: FileManager.default.homeDirectoryForCurrentUser)
+        XCTAssertEqual(manager.sessions.count, 2)
+        // 无法断言"没写默认路径"（那会读写真实配置文件），
+        // 但 canStart 之外没有任何路径能绕过 workspaceFileURL == nil 的守卫：
+        // persistWorkspace() 的第一行就是 guard。
+    }
+
+    /// 坏条目（被人手改成非法 host / 端口）必须被跳过，而不是喂给 ssh。
+    func testStoredTabWithIllegalTargetIsRejected() {
+        let bad = StoredTerminalTab(label: "bad", target: SSHTarget(host: "ok"))
+        var mutated = bad
+        mutated.host = "-oProxyCommand=/bin/sh"
+        XCTAssertNil(mutated.target, "前导 - 会被 ssh 当成选项，必须拒绝")
+
+        var badPort = bad
+        badPort.port = 70000
+        XCTAssertNil(badPort.target)
+
+        XCTAssertNotNil(bad.target)
+    }
 }

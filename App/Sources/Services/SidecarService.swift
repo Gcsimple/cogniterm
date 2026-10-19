@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AcpClient
 import Persistence
+import SessionLogReader
 
 /// Sidecar 生命周期与 ACP 连接的 App 层服务。
 /// 真实模式：sandbox-exec(sidecar.sb) + node + dsh lib/bin.js --profile acp（--patch 关日志）。
@@ -664,25 +665,81 @@ final class SidecarService: ObservableObject {
         }
     }
 
-    /// 列出 dsh 持久化会话（跨重启有效；cwd 按当前工作区过滤）。
-    func listHistory() async throws -> [SessionInfo] {
-        guard let client else { return [] }
-        return try await client.listSessions(cwd: workspaceRoot).sessions
+    /// 当前工作区的历史会话，**从本地落盘索引读**。
+    ///
+    /// 为什么不用 ACP 的 `session/list`：它内部有 `createdAt` 并按它排序，但响应里
+    /// 只回 `{sessionId, cwd}`——标题和时间都在服务端被裁掉了，UI 只能显示
+    /// `会话 <uuid 前 8 位>`，用户认不出是哪次对话。而这两样 dsh 都落在本地明文里
+    /// （projcache 的 `title` / `identity.createdAt` + 轨迹文件 mtime）。
+    /// 顺带解决了另一个问题：空会话（每次握手顺手建的那种，本机占 56%）在本地
+    /// 一眼能认出来，可以默认不列。
+    ///
+    /// 仍然按工作区过滤：`session/resume` 会校验 cwd，列出别的目录的会话点一下就失败。
+    /// 但全量列表允许把过滤关掉（`onlyCurrentWorkspace: false`）——那是**清理**场景：
+    /// 换过工作区之后，旧目录的会话既看不见也删不掉，会永远留在磁盘上。
+    func recentSessions(includeBlank: Bool = false,
+                        onlyCurrentWorkspace: Bool = true) -> [SessionSummary] {
+        let all = SessionIndex.load(dshHome: dshHomeDirectory, includeBlank: includeBlank)
+        guard onlyCurrentWorkspace else { return all }
+        let current = Self.canonicalPath(workspaceRoot.path)
+        return all.filter { summary in
+            guard let cwd = summary.cwd, !cwd.isEmpty else { return false }
+            return Self.canonicalPath(cwd) == current
+        }
+    }
+
+    /// 这条会话能不能在当前工作区里 resume（dsh 会校验 cwd）。
+    func canResume(_ summary: SessionSummary) -> Bool {
+        guard let cwd = summary.cwd, !cwd.isEmpty else { return false }
+        return Self.canonicalPath(cwd) == Self.canonicalPath(workspaceRoot.path)
+    }
+
+    /// 路径比较用：解析符号链接 + 去尾斜杠。
+    ///
+    /// 不这么做的话 `/tmp/x` 与 `/private/tmp/x`、`/Users/Admin/CogniTerm/` 与
+    /// 不带斜杠的写法会被判成两个工作区，历史列表就空给你看。
+    static func canonicalPath(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     /// 恢复一个历史会话：resume 后切换当前 sessionID 并重置展示面。
-    func resumeSession(_ info: SessionInfo) async {
+    ///
+    /// 注意 `session/resume` **不回放历史消息**（dsh-acp 没有 replay 路径），
+    /// 所以 UI 必须先让用户看轨迹（`SessionArchive`）再决定要不要在这里继续——
+    /// 否则用户"恢复"的是一段自己看不见的上下文。
+    func resumeSession(_ summary: SessionSummary) async {
         guard let client else { return }
         do {
-            let result = try await client.resume(sessionId: info.sessionId, cwd: workspaceRoot, mcpServers: terminalMCPServers)
-            sessionID = info.sessionId
+            let result = try await client.resume(sessionId: summary.sessionId, cwd: workspaceRoot, mcpServers: terminalMCPServers)
+            sessionID = summary.sessionId
             applyConfigOptions(result.configOptions, reason: "session/resume")
             conversation?.beginSession()
-            conversation?.appendSystem("已恢复会话 \(info.sessionId)（resume 不回放历史消息）")
+            conversation?.appendSystem("已在该会话的上下文里继续：\(summary.displayTitle)")
         } catch {
             diagnostics.append("[resume] \(error)")
             conversation?.appendSystem("恢复会话失败：\(error)")
         }
+    }
+
+    /// 删掉一条历史会话（移入废纸篓，可恢复）。
+    ///
+    /// 只动磁盘，不碰当前连接：dsh 那边同一个 sessionId 若已被 resume，删掉目录不会
+    /// 影响内存里的会话，但下次 resume 会失败——所以 UI 侧禁止删「当前会话」。
+    @discardableResult
+    func deleteSession(_ summary: SessionSummary) throws -> [URL] {
+        try SessionStore.trash(summary, dshHome: dshHomeDirectory)
+    }
+
+    /// 解压并归约一个会话轨迹，供「先看再决定要不要继续」的预览用。
+    ///
+    /// 放到 detached 任务里：大会话解压后可能上兆，不能占主线程。
+    func replayState(for summary: SessionSummary) async throws -> SessionViewState {
+        guard let trajectory = summary.trajectory else {
+            throw SessionArchive.Failure.empty
+        }
+        return try await Task.detached(priority: .userInitiated) {
+            try SessionArchive.replayState(at: trajectory)
+        }.value
     }
 
     // MARK: - 握手与通知订阅
@@ -800,6 +857,30 @@ enum WorkspacePaths {
             try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         }
         return url
+    }
+
+    /// 一次性修掉旧版留下的坏工作区：`$HOME/log`。
+    ///
+    /// 早期版本的「工作区」是个自由输入框，输入 `log` 会被解析成 `$HOME/log`（相对路径
+    /// 按 cwd 展开）并**静默**把工作区带到一个放日志的目录——还会顺手建一个同名空目录。
+    /// 输入框已经删掉（改成只能走 NSOpenPanel），但当时写进 UserDefaults 的值还在，
+    /// 表现为侧栏顶着一行 `~/log`、终端起在 `~/log`、历史列表也只能看见那批会话。
+    ///
+    /// 只认这一个已知产物，别的一概不动：这个值不可能来自正常操作（面板返回的永远是
+    /// 绝对路径 + 目录选择），所以命中即恢复默认。用户真要 `~/log` 还能再选一次。
+    @discardableResult
+    static func repairLegacyResidue(_ path: inout String, defaults: UserDefaults = .standard) -> Bool {
+        let key = "workspacePathResidueRepaired"
+        guard !defaults.bool(forKey: key) else { return false }
+        defaults.set(true, forKey: key)
+
+        let legacy = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("log", isDirectory: true)
+            .standardizedFileURL.path
+        guard URL(fileURLWithPath: path).standardizedFileURL.path == legacy else { return false }
+
+        path = defaultWorkspaceURL().path
+        return true
     }
 }
 

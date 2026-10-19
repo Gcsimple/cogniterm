@@ -6,7 +6,7 @@ import Foundation
 /// 都能在命令行单测——而 SSH 这一层最贵的 bug 恰好是"参数拼错"与"选项注入"：
 /// 用户输入直接进 `ssh` 的 argv，前导 `-` 会被当成选项（`-oProxyCommand=…`
 /// 就是一次本地命令执行）。
-public struct SSHTarget: Equatable, Sendable {
+public struct SSHTarget: Equatable, Sendable, Codable {
     public var host: String
     public var port: Int
     public var username: String?

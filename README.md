@@ -109,15 +109,15 @@ open -b com.cogniterm.app
 scripts/run-tests.sh
 ```
 
-5 个本地包 + App 目标，共 **192** 个测试，全部通过：
+5 个本地包 + App 目标，共 **217** 个测试，全部通过：
 
 | 目标 | 用例数 |
 |---|---|
 | `AcpClient` | 42 |
 | `TerminalCore` | 32 |
-| `App`（CogniTerm） | 77 |
+| `App`（CogniTerm） | 88 |
 | `Persistence` | 23 |
-| `SessionLogReader` | 10 |
+| `SessionLogReader` | 24 |
 | `PolicyEngine` | 8 |
 
 App 测试用「编译测试 bundle + `xcrun xctest` 独立运行」的方式跑，不需要 app host——在无沙箱的常规机器上 `xcodebuild test` 也可以。
@@ -133,6 +133,7 @@ App 测试用「编译测试 bundle + `xcrun xctest` 独立运行」的方式跑
 | 新建会话 / SSH 连接 | 终端面板顶部 `＋` |
 | 切换模型 | 侧栏底部的模型按钮 |
 | 查看审批规则 | 侧栏 → 进阶弹层 |
+| 恢复 / 删除历史会话 | 「最近会话」行：点一下先看轨迹，右键可复制 id 或移到废纸篓 |
 | 重连 sidecar | 上下文头的 `⚙` |
 
 审批卡会标注命令的目标（本地 / `user@host`）——这是"命令可能发到远程"的唯一可见面。
@@ -245,6 +246,8 @@ docs/                 设计文档（研究稿，含决策记录）
 - **SSH 只是会话承载**，不含 RDP / VNC / X11 转发。
 - **会话级 cwd 不可变更**：dsh 在 `newSession` 时定死工作目录，所以终端里 `cd` 之后 agent 不会跟随——UI 只做提示与一键拉回，不会悄悄改你的上下文。
 - **不存任何凭据**：SSH 只保存书签（无密码字段），私钥口令由 `ssh` 自己提示。
+- **历史会话是「先看再继续」两步**：dsh 的 `session/resume` 不回放消息，直接 resume 等于恢复一段看不见的上下文。所以列表先读本地轨迹渲染预览，你确认后才在该上下文继续。列表数据也不走 ACP——`session/list` 会裁掉标题与时间，标题取自 dsh 自己写的 projcache，轨迹是 zstd 多帧，由内置 node 逐帧解压。
+- **空会话默认不列出**：dsh 每新建一次会话就落一个空目录，实测空目录占比过半（123 个里 69 个），默认折叠，需要时在「查看全部」里打开开关。
 - 构建产物是 **ad-hoc 签名**，首次打开需要在「系统设置 → 隐私与安全性」里放行。
 
 ---

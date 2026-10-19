@@ -19,6 +19,8 @@
 		BF100000000000000000A00A /* TerminalPaneView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00A /* TerminalPaneView.swift */; };
 		BF100000000000000000A00B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00B /* SettingsView.swift */; };
 		BF100000000000000000A022 /* ModelEndpointSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A022 /* ModelEndpointSettingsView.swift */; };
+		BF100000000000000000A023 /* SessionArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A023 /* SessionArchive.swift */; };
+		BF100000000000000000A024 /* TerminalWorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A024 /* TerminalWorkspaceStore.swift */; };
 		BF100000000000000000A00C /* sidecar.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00C /* sidecar.sb */; };
 		BF100000000000000000A016 /* sidecar-writable.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A016 /* sidecar-writable.sb */; };
 		BF100000000000000000A017 /* TerminalMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A017 /* TerminalMCPServer.swift */; };
@@ -42,6 +44,8 @@
 		BF100000000000000000C002 /* ConversationModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C002 /* ConversationModelTests.swift */; };
 		BF100000000000000000C00A /* TerminalMCPServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00A /* TerminalMCPServerTests.swift */; };
 		BF100000000000000000C00B /* SessionManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00B /* SessionManagerTests.swift */; };
+		BF100000000000000000C00C /* SessionArchiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00C /* SessionArchiveTests.swift */; };
+		BF100000000000000000C00D /* WorkspacePathMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00D /* WorkspacePathMigrationTests.swift */; };
 		BF100000000000000000C003 /* CoreProfilePatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C003 /* CoreProfilePatchTests.swift */; };
 		BF100000000000000000C004 /* SidecarEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C004 /* SidecarEnvironmentTests.swift */; };
 		BF100000000000000000C005 /* SessionConfigOptionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */; };
@@ -61,6 +65,8 @@
 		FR100000000000000000A00A /* TerminalPaneView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPaneView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00B /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A022 /* ModelEndpointSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEndpointSettingsView.swift; sourceTree = "<group>"; };
+		FR100000000000000000A023 /* SessionArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionArchive.swift; sourceTree = "<group>"; };
+		FR100000000000000000A024 /* TerminalWorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWorkspaceStore.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00C /* sidecar.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar.sb; sourceTree = "<group>"; };
 		FR100000000000000000A016 /* sidecar-writable.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar-writable.sb; sourceTree = "<group>"; };
 		FR100000000000000000A017 /* TerminalMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMCPServer.swift; sourceTree = "<group>"; };
@@ -80,6 +86,8 @@
 		FR100000000000000000C002 /* ConversationModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationModelTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C00A /* TerminalMCPServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMCPServerTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C00B /* SessionManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionManagerTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C00C /* SessionArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionArchiveTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C00D /* WorkspacePathMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePathMigrationTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C003 /* CoreProfilePatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreProfilePatchTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C004 /* SidecarEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarEnvironmentTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigOptionFlowTests.swift; sourceTree = "<group>"; };
@@ -146,6 +154,8 @@
 				FR100000000000000000A004 /* DemoPeer.swift */,
 				FR100000000000000000A017 /* TerminalMCPServer.swift */,
 				FR100000000000000000A018 /* SessionManager.swift */,
+				FR100000000000000000A023 /* SessionArchive.swift */,
+				FR100000000000000000A024 /* TerminalWorkspaceStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -229,6 +239,8 @@
 				FR100000000000000000C002 /* ConversationModelTests.swift */,
 				FR100000000000000000C00A /* TerminalMCPServerTests.swift */,
 				FR100000000000000000C00B /* SessionManagerTests.swift */,
+				FR100000000000000000C00C /* SessionArchiveTests.swift */,
+				FR100000000000000000C00D /* WorkspacePathMigrationTests.swift */,
 				FR100000000000000000C003 /* CoreProfilePatchTests.swift */,
 				FR100000000000000000C004 /* SidecarEnvironmentTests.swift */,
 				FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */,
@@ -378,6 +390,8 @@
 				BF100000000000000000A00A /* TerminalPaneView.swift in Sources */,
 				BF100000000000000000A00B /* SettingsView.swift in Sources */,
 				BF100000000000000000A022 /* ModelEndpointSettingsView.swift in Sources */,
+				BF100000000000000000A023 /* SessionArchive.swift in Sources */,
+				BF100000000000000000A024 /* TerminalWorkspaceStore.swift in Sources */,
 				BF100000000000000000A012 /* OnboardingView.swift in Sources */,
 				BF100000000000000000A013 /* SessionReplayView.swift in Sources */,
 			);
@@ -391,6 +405,8 @@
 				BF100000000000000000C002 /* ConversationModelTests.swift in Sources */,
 				BF100000000000000000C00A /* TerminalMCPServerTests.swift in Sources */,
 				BF100000000000000000C00B /* SessionManagerTests.swift in Sources */,
+				BF100000000000000000C00C /* SessionArchiveTests.swift in Sources */,
+				BF100000000000000000C00D /* WorkspacePathMigrationTests.swift in Sources */,
 				BF100000000000000000C003 /* CoreProfilePatchTests.swift in Sources */,
 				BF100000000000000000C004 /* SidecarEnvironmentTests.swift in Sources */,
 				BF100000000000000000C005 /* SessionConfigOptionFlowTests.swift in Sources */,

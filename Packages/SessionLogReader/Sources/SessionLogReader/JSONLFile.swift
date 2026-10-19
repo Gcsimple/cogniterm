@@ -8,7 +8,8 @@ public enum JSONLFile {
         return parseAll(data: data, decoder: decoder)
     }
 
-    static func parseAll(data: Data, decoder: JSONDecoder) -> [LogEvent] {
+    /// 从内存数据解析。公开给需要在别的模块里先解码（如 zstd 多帧）再归约的调用方。
+    public static func parseAll(data: Data, decoder: JSONDecoder = .acp) -> [LogEvent] {
         var events: [LogEvent] = []
         var seq = 0
         data.split(separator: 0x0A, omittingEmptySubsequences: true).forEach { line in
