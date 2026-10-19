@@ -8,6 +8,8 @@
 macOS 14+ · Swift / SwiftUI · SwiftTerm · ACP · MCP · 无 Electron · MIT
 ```
 
+![CogniTerm 首次启动：左侧是会话与上下文，右侧是对话流，底部是 agent 与你共用的那个 PTY](docs/images/screenshot.png)
+
 ---
 
 ## 为什么做它
