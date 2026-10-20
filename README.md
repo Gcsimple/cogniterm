@@ -77,6 +77,18 @@ macOS 14+ · Swift / SwiftUI · SwiftTerm · ACP · MCP · 无 Electron · MIT
 
 ## 快速开始
 
+### 直接下载
+
+不想自己编？到 [Releases](https://github.com/Gcsimple/cogniterm/releases/latest) 下载
+`CogniTerm-<version>-macos-arm64.zip`（约 250MB，**内置 Node 与 dsh 运行时**，不用另装）。
+
+解压后拖进 `/Applications`。这个包是 **ad-hoc 签名、未公证**：首次启动要右键 → 打开；
+如果被 Gatekeeper 拦成「已损坏，无法打开」，执行一次
+
+```bash
+xattr -dr com.apple.quarantine /Applications/CogniTerm.app
+```
+
 ### 依赖
 
 - macOS 14 (Sonoma) 或更新，Apple Silicon
@@ -225,7 +237,7 @@ Packages/
 ├── SessionLogReader/ dsh 会话日志（JSONL）解析与重放
 └── SwiftTerm/        vendored 终端引擎（上游 + 少量必要修改）
 
-scripts/              build / install / vendor-runtime / fetch-runtime / run-tests
+scripts/              build / install / make-release / vendor-runtime / fetch-runtime / run-tests
 docs/                 设计文档（研究稿，含决策记录）
 ```
 
