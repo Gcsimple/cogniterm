@@ -301,7 +301,7 @@ MVP 的功能是齐的，但**三个动作还是「两段式」**：
 
 ### 测试账
 
-`scripts/run-tests.sh`：App 106 → **127**（影子缓冲 10 + 打分 7 + 历史解析 4），
-全量 0 失败。视觉：`docs/images/pet-idle.png` / `pet-suggestions.png`
+`scripts/run-tests.sh`：App 106 → **133**（影子缓冲 10 + 打分 7 + 灰字补全 3 +
+接受键 3 + 历史解析 4），全量 0 失败。视觉：`docs/images/pet-idle.png` / `pet-suggestions.png`
 （后者是真机截图：终端里已敲 `ls`，气泡给出 `ls -l` / `ls -la ~/CogniTerm`
 / `ls -la`，图例「历史」，底部「点击只键入、不回车」）。
