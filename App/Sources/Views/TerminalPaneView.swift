@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import TerminalCore
 import SwiftTerm
+import PolicyEngine
 
 // 字号档位（pt）。用离散档位而不是连续缩放：等宽字体在小数号上栅格化很难看。
 private let terminalFontSizes: [CGFloat] = [9, 10, 11, 12, 13, 14, 16, 18, 20, 24]
@@ -333,6 +334,21 @@ final class TerminalSession: ObservableObject, Identifiable {
     /// 终端自身的诊断（OSC 52 异常之类）。有界，只在工具条提示里给人看。
     @Published private(set) var diagnostics: [String] = []
 
+    /// 「用户现在这一行打了什么」的影子缓冲区（宠物用它做实时补全）。
+    /// 由 `send` 唯一喂入，所以任何写进 PTY 的字节都会被计入。
+    @Published private(set) var petInput = PetInputBuffer()
+
+    /// 宠物当前给出的候选（已标好风险）。计算放在会话里而不是视图里：
+    /// 行内灰字和工具栏气泡读的是同一份结果，不会出现「灰字补 A、气泡
+    /// 第一名是 B」。
+    @Published private(set) var petSuggestions: [PetSuggestion] = []
+
+    /// 贴在光标后面的行内灰字内容（仅追加部分）。nil = 不显示。
+    @Published private(set) var petGhostSuffix: String?
+
+    /// `cwd` 下的条目名（目录带尾部 `/`），随目录变化重载一次。
+    @Published private(set) var petEntries: [String] = []
+
     /// 当前工作区根目录（也用作 shell 的起始 cwd）。
     private(set) var workspaceRoot: URL?
 
@@ -345,6 +361,7 @@ final class TerminalSession: ObservableObject, Identifiable {
     private var appliedDarkAppearance: Bool?
     private var bellResetTask: Task<Void, Never>?
     private var convergenceTask: Task<Void, Never>?
+    private var petEntriesTask: Task<Void, Never>?
 
     // MARK: 生命周期
 
@@ -366,6 +383,7 @@ final class TerminalSession: ObservableObject, Identifiable {
     func start(root: URL) {
         guard workspaceRoot == nil else { return }
         workspaceRoot = root.standardizedFileURL
+        reloadPetEntries()
         if view != nil { scheduleLaunch() }
     }
 
@@ -396,6 +414,7 @@ final class TerminalSession: ObservableObject, Identifiable {
         // 视图要没了，焦点状态必须跟着清：否则菜单里的 ⌘K/⌘R 会一直对着一个
         // 已经不在界面上的终端生效（典型触发：关掉窗口后还在原窗口位置按快捷键）。
         TerminalFocus.shared.setFocused(false)
+        petEntriesTask?.cancel()
         view = nil
     }
 
@@ -492,9 +511,104 @@ final class TerminalSession: ObservableObject, Identifiable {
 
     // MARK: 输入 / 控制
 
+    /// PTY 写入的**唯一低层漏斗**：键盘（`Coordinator.send`）、粘贴、
+    /// 对话里代码块的「插入」、审批卡的「在终端运行」全部经过这里。
+    /// 宠物因此不需要另铺一套钩子 —— 在这里顺手喂影子缓冲区，
+    /// 就等价于「用户这一行打了什么」（见 `PetInputBuffer`）。
     func send(_ data: ArraySlice<UInt8>) {
         guard !data.isEmpty else { return }
+        petInput.consume(data)
         pty?.write(Data(data))
+        refreshPetSuggestions()
+    }
+
+    // MARK: 宠物补全
+
+    /// 宠物眼里的「当前目录」：OSC 7 报了就信 shell，没报就退回工作区根。
+    private var petDirectory: String? {
+        shellDirectory ?? workspaceRoot?.path
+    }
+
+    /// 键盘漏斗的**最前面**调用：这组字节如果是「接受行内灰字」的键，
+    /// 返回应该替用户键入的补全尾巴；调用方据此截获、不把原字节发给 PTY。
+    ///
+    /// 三道闸：①必须是裸 Tab / 裸 →（修饰键组合不认）；②影子可信且不在
+    /// 括号粘贴里；③确实有灰字可补。任何一条不满足都返回 nil，按键与从前
+    /// 完全等价（Tab 照样落给 shell 自己的补全）。
+    func petCompletion(forKey data: ArraySlice<UInt8>) -> String? {
+        guard PetGhostKey.isAcceptKey(data),
+              !petInput.isPasting,
+              petInput.confidence.isExact,
+              let suffix = petGhostSuffix,
+              !suffix.isEmpty
+        else { return nil }
+        return suffix
+    }
+
+    /// 接受灰字：把尾巴当普通键入发出去（走 `send`，影子缓冲区随之精确更新），
+    /// 依然**不回车**。
+    func acceptPetCompletion(_ suffix: String) {
+        send(ArraySlice(Array(suffix.utf8)))
+    }
+
+    /// 重算候选与行内灰字。每次输入后调用；目录条目是异步到的，到了再算一次。
+    private func refreshPetSuggestions() {
+        let input = petInput
+        let resolved = PetSuggestionEngine.suggest(
+            line: input.text,
+            leadingContext: input.leadingContext,
+            token: input.trailingToken,
+            kind: input.confidence,
+            entries: petEntries,
+            history: PetContextStore.shared.history(),
+            agentCommands: PetContextStore.shared.agentCommands
+        ).map { suggestion in
+            PetSuggestion(id: suggestion.id,
+                          command: suggestion.command,
+                          source: suggestion.source,
+                          isRisky: isPetCommandRisky(suggestion.command))
+        }
+        petSuggestions = resolved
+        petGhostSuffix = PetGhostCompletion.suffix(
+            line: input.text,
+            isExact: input.confidence.isExact,
+            suggestions: resolved
+        )
+    }
+
+    private func isPetCommandRisky(_ command: String) -> Bool {
+        RiskEvaluator.assess(
+            CommandInvocation(tool: "terminal",
+                              command: command,
+                              cwd: petDirectory,
+                              workspaceRoot: workspaceRoot?.path)
+        ).needsHumanApproval
+    }
+
+    /// cwd 一变（OSC 7 到达 / 工作区确定）就重新列一次目录。读盘放后台：
+    /// 大目录列一次不便宜，不能堵在主线程的输入路径上。
+    private func reloadPetEntries() {
+        let directory = petDirectory
+        petEntriesTask?.cancel()
+        petEntriesTask = Task.detached { [weak self] in
+            let loaded = PetContextStore.listEntries(at: directory)
+            await MainActor.run {
+                guard let self, !Task.isCancelled else { return }
+                self.petEntries = loaded
+                self.refreshPetSuggestions()
+            }
+        }
+    }
+
+    /// 把当前命令行**整行替换**成给定文本（宠物候选项的接受动作）。
+    ///
+    /// 先发 Ctrl-U 让 ZLE kill 掉整行，再键入新内容；**不回车**——
+    /// 与代码块的「插入」同一个语义：东西落到命令行上，按不按 ↵ 由人决定。
+    func replaceCommandLine(_ command: String) {
+        guard !command.isEmpty else { return }
+        send(ArraySlice([0x15]))
+        send(ArraySlice(Array(command.utf8)))
+        focusTerminal()
     }
 
     /// 把一条命令**键入**终端但不回车（对话里代码块的「插入」动作）。
@@ -781,9 +895,13 @@ final class TerminalSession: ObservableObject, Identifiable {
     }
 
     func observeShellDirectory(_ directory: String?) {
+        let oldDirectory = petDirectory
         shellDirectory = directory
         if let directory, directory == pendingDirectorySync {
             pendingDirectorySync = nil
+        }
+        if petDirectory != oldDirectory {
+            reloadPetEntries()
         }
     }
 
@@ -912,9 +1030,71 @@ extension TerminalSession: TerminalCommandExecutor {}
 /// 的毛病之一。`TerminalView` 是 `open class`、`mouseDown` 是 `open override`，
 /// 用公开的继承点补上，不碰内部实现。
 final class CogniTerminalView: TerminalView {
+
+    /// 宠物行内灰字的载体。它是终端视图的子视图，但**永不参与命中测试**
+    /// （`hitTest` 直接返回 nil）：选区、鼠标编码、点击聚焦全都透传给终端，
+    /// SwiftTerm 自己的绘制/输入路径一行不碰。坐标取公开的 `caretFrame`
+    /// ——当前 App 走主线程渲染路径，光标每帧都会更新它。
+    private let ghostLabel = GhostCompletionLabel()
+    private var ghostText: String?
+    private var ghostTextWidth: CGFloat = 0
+    private var ghostAttributes: [NSAttributedString.Key: Any] = [:]
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
+    }
+
+    /// 设置行内灰字内容；nil / 空串即隐藏。字号跟随终端当前字体，
+    /// 字距按单元格宽度补差，保证灰字一格一格压在终端网格上。
+    func setGhostCompletion(_ text: String?) {
+        ghostText = text
+        guard let text, !text.isEmpty else {
+            ghostLabel.isHidden = true
+            return
+        }
+        ensureGhostLabel()
+        let font = self.font
+        let kern = font.kernToFitCell(cellWidth: caretFrame.width)
+        ghostAttributes = [
+            .font: font,
+            // tertiaryLabel 在深/浅外观下都是「能看见但绝不抢戏」的灰。
+            .foregroundColor: NSColor.tertiaryLabelColor,
+            .kern: kern
+        ]
+        ghostLabel.attributedStringValue = NSAttributedString(string: text,
+                                                              attributes: ghostAttributes)
+        ghostTextWidth = (text as NSString).size(withAttributes: ghostAttributes).width
+        positionGhostLabel()
+        ghostLabel.isHidden = false
+    }
+
+    /// 终端缓冲每帧变化、滚动、尺寸变化时重定位（由 `rangeChanged` 等委托驱动）。
+    /// 敲键后真正让光标挪位的是 shell 回显，那一刻不重贴就会落后一格。
+    func refreshGhostPosition() {
+        guard let ghostText, !ghostText.isEmpty, !ghostLabel.isHidden else { return }
+        positionGhostLabel()
+    }
+
+    private func ensureGhostLabel() {
+        if ghostLabel.superview !== self {
+            addSubview(ghostLabel, positioned: .above, relativeTo: nil)
+        }
+    }
+
+    private func positionGhostLabel() {
+        let caret = caretFrame
+        guard caret != .zero else {
+            ghostLabel.isHidden = true
+            return
+        }
+        let availableWidth = max(0, bounds.width - caret.maxX - 2)
+        ghostLabel.frame = NSRect(
+            x: caret.maxX,
+            y: caret.minY,
+            width: min(ghostTextWidth, availableWidth),
+            height: caret.height
+        )
     }
 
     /// 焦点进出 → 发布给菜单栏用。
@@ -937,6 +1117,39 @@ final class CogniTerminalView: TerminalView {
         let accepted = super.resignFirstResponder()
         if accepted { TerminalFocus.shared.setFocused(false) }
         return accepted
+    }
+}
+
+/// 行内灰字专用 Label：透明背景、单行、超长裁切；最重要的是 `hitTest`
+/// 返回 nil —— 它在视觉上盖着终端，交互上「不存在」，选区和鼠标编码不受影响。
+private final class GhostCompletionLabel: NSTextField {
+
+    init() {
+        super.init(frame: .zero)
+        isBezeled = false
+        drawsBackground = false
+        isEditable = false
+        isSelectable = false
+        // 不能置成 isEnabled=false：禁用态文本会被系统改色，灰字颜色必须由我们控制。
+        isHidden = true
+        usesSingleLineMode = true
+        cell?.wraps = false
+        lineBreakMode = .byClipping
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private extension NSFont {
+    /// SwiftTerm 把单元格宽度做了像素取整，等宽字体的自然推进可能略窄，
+    /// 差值作为字距补上（与 SwiftTerm 输入法浮层同款算法）。
+    func kernToFitCell(cellWidth: CGFloat) -> CGFloat {
+        guard cellWidth > 0 else { return 0 }
+        let natural = advancement(forGlyph: glyph(withName: "W")).width
+        return max(0, cellWidth - natural)
     }
 }
 
@@ -967,12 +1180,19 @@ struct TerminalCanvas: NSViewRepresentable {
 
         /// 键盘/鼠标编码 → PTY。方向键、Tab、Ctrl-R、Ctrl-C、粘贴全走这条路。
         func send(source: TerminalView, data: ArraySlice<UInt8>) {
+            // 最前面一道闸：裸 Tab / 裸 → 且行内灰字正在显示时截获，
+            // 把补全尾巴「替用户键入」（不回车）；其余一切原样透传。
+            if let suffix = session.petCompletion(forKey: data) {
+                session.acceptPetCompletion(suffix)
+                return
+            }
             session.send(data)
         }
 
         /// 视图尺寸 → TIOCSWINSZ。全屏程序（vim/less/htop）靠它正确重排。
         func sizeChanged(source: TerminalView, newCols: Int, newRows: Int) {
             session.observeSize(columns: newCols, rows: newRows)
+            (source as? CogniTerminalView)?.refreshGhostPosition()
         }
 
         func setTerminalTitle(source: TerminalView, title: String) {
@@ -986,6 +1206,12 @@ struct TerminalCanvas: NSViewRepresentable {
         /// 滚动位置 → 回看状态。不在底部时界面浮出"回到底部"并统计新输出。
         func scrolled(source: TerminalView, position: Double) {
             session.observeScroll(position: position)
+            (source as? CogniTerminalView)?.refreshGhostPosition()
+        }
+
+        /// 终端可见缓冲变化（shell 回显让光标真正挪位的时机）→ 灰字跟着光标走。
+        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {
+            (source as? CogniTerminalView)?.refreshGhostPosition()
         }
 
         /// BEL（`\a`）。SwiftTerm 默认 `NSSound.beep()`，改成视觉提示。
@@ -1010,9 +1236,6 @@ struct TerminalCanvas: NSViewRepresentable {
             pasteboard.setString(text, forType: .string)
         }
 
-        /// 只在 `notifyUpdateChanges` 为真时才回调，我们不开启它。
-        func rangeChanged(source: TerminalView, startY: Int, endY: Int) {}
-
         // 其余（requestOpenLink / bell / clipboardCopy / clipboardRead / kitty* /
         // programStatusChanged）都用上游默认实现：默认实现里 requestOpenLink
         // 走 NSWorkspace 打开链接，正是我们要的行为。
@@ -1029,6 +1252,8 @@ struct TerminalCanvas: NSViewRepresentable {
             options: Self.startupOptions
         )
         view.terminalDelegate = context.coordinator
+        // 打开可见变化回调：行内灰字靠 rangeChanged 追光标的每帧位置。
+        view.notifyUpdateChanges = true
         session.attach(view)
         return view
     }
@@ -1036,6 +1261,7 @@ struct TerminalCanvas: NSViewRepresentable {
     func updateNSView(_ view: TerminalView, context: Context) {
         session.applyFont(to: view)
         session.applyNativeColors(to: view)
+        (view as? CogniTerminalView)?.setGhostCompletion(session.petGhostSuffix)
     }
 
     static func dismantleNSView(_ nsView: TerminalView, coordinator: Coordinator) {
@@ -1170,6 +1396,11 @@ struct TerminalPanel: View {
             }
 
             Spacer(minLength: 8)
+
+            // 宠物跟着工具栏走：工具栏是确定性布局的一行，比在画布上开
+            // 浮层省掉一堆对齐坑（曾试过 ZStack bottomTrailing，气泡一展开
+            // 宠物就漂到半空）。
+            PetOverlayView(session: session)
 
             if let hint = session.syncHint() {
                 Text("工作区已切换")

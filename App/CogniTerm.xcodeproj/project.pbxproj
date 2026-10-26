@@ -31,6 +31,10 @@
 		BF100000000000000000A025 /* AppCommandCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A025 /* AppCommandCenter.swift */; };
 		BF100000000000000000A026 /* MarkdownParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A026 /* MarkdownParser.swift */; };
 		BF100000000000000000A027 /* MarkdownMessageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A027 /* MarkdownMessageView.swift */; };
+		BF100000000000000000A028 /* PetContextStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A028 /* PetContextStore.swift */; };
+		BF100000000000000000A029 /* PetInputBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A029 /* PetInputBuffer.swift */; };
+		BF100000000000000000A02A /* PetSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02A /* PetSuggestion.swift */; };
+		BF100000000000000000A02B /* PetOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02B /* PetOverlayView.swift */; };
 		BF100000000000000000A00F /* no-telemetry.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00F /* no-telemetry.yml */; };
 		BF100000000000000000A014 /* cogniterm-core.patch.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A015 /* cogniterm-core.patch.yml */; };
 		BF100000000000000000A010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A010 /* Assets.xcassets */; };
@@ -50,6 +54,7 @@
 		BF100000000000000000C00C /* SessionArchiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00C /* SessionArchiveTests.swift */; };
 		BF100000000000000000C00D /* WorkspacePathMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00D /* WorkspacePathMigrationTests.swift */; };
 		BF100000000000000000C00E /* MarkdownParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00E /* MarkdownParserTests.swift */; };
+		BF100000000000000000C00F /* PetSuggestionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00F /* PetSuggestionTests.swift */; };
 		BF100000000000000000C003 /* CoreProfilePatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C003 /* CoreProfilePatchTests.swift */; };
 		BF100000000000000000C004 /* SidecarEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C004 /* SidecarEnvironmentTests.swift */; };
 		BF100000000000000000C005 /* SessionConfigOptionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */; };
@@ -78,6 +83,10 @@
 		FR100000000000000000A025 /* AppCommandCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppCommandCenter.swift; sourceTree = "<group>"; };
 		FR100000000000000000A026 /* MarkdownParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownParser.swift; sourceTree = "<group>"; };
 		FR100000000000000000A027 /* MarkdownMessageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownMessageView.swift; sourceTree = "<group>"; };
+		FR100000000000000000A028 /* PetContextStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetContextStore.swift; sourceTree = "<group>"; };
+		FR100000000000000000A029 /* PetInputBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetInputBuffer.swift; sourceTree = "<group>"; };
+		FR100000000000000000A02A /* PetSuggestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetSuggestion.swift; sourceTree = "<group>"; };
+		FR100000000000000000A02B /* PetOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetOverlayView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A019 /* NewSSHSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSSHSessionSheet.swift; sourceTree = "<group>"; };
 		FR100000000000000000A021 /* TerminalTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabBar.swift; sourceTree = "<group>"; };
 		FR100000000000000000A020 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -96,6 +105,7 @@
 		FR100000000000000000C00C /* SessionArchiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionArchiveTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C00D /* WorkspacePathMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePathMigrationTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C00E /* MarkdownParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownParserTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C00F /* PetSuggestionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetSuggestionTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C003 /* CoreProfilePatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreProfilePatchTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C004 /* SidecarEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarEnvironmentTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigOptionFlowTests.swift; sourceTree = "<group>"; };
@@ -163,6 +173,7 @@
 				FR100000000000000000A017 /* TerminalMCPServer.swift */,
 				FR100000000000000000A018 /* SessionManager.swift */,
 				FR100000000000000000A025 /* AppCommandCenter.swift */,
+				FR100000000000000000A028 /* PetContextStore.swift */,
 				FR100000000000000000A023 /* SessionArchive.swift */,
 				FR100000000000000000A024 /* TerminalWorkspaceStore.swift */,
 			);
@@ -174,6 +185,8 @@
 			children = (
 				FR100000000000000000A005 /* ConversationModel.swift */,
 				FR100000000000000000A026 /* MarkdownParser.swift */,
+				FR100000000000000000A029 /* PetInputBuffer.swift */,
+				FR100000000000000000A02A /* PetSuggestion.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -194,6 +207,7 @@
 				FR100000000000000000A021 /* TerminalTabBar.swift */,
 				FR100000000000000000A020 /* SidebarView.swift */,
 				FR100000000000000000A027 /* MarkdownMessageView.swift */,
+				FR100000000000000000A02B /* PetOverlayView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -257,6 +271,7 @@
 				FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */,
 				FR100000000000000000C006 /* TerminalIntegrationTests.swift */,
 				FR100000000000000000C00E /* MarkdownParserTests.swift */,
+				FR100000000000000000C00F /* PetSuggestionTests.swift */,
 			);
 			path = Tests/CogniTermTests;
 			sourceTree = "<group>";
@@ -393,6 +408,10 @@
 				BF100000000000000000A025 /* AppCommandCenter.swift in Sources */,
 				BF100000000000000000A026 /* MarkdownParser.swift in Sources */,
 				BF100000000000000000A027 /* MarkdownMessageView.swift in Sources */,
+				BF100000000000000000A028 /* PetContextStore.swift in Sources */,
+				BF100000000000000000A029 /* PetInputBuffer.swift in Sources */,
+				BF100000000000000000A02A /* PetSuggestion.swift in Sources */,
+				BF100000000000000000A02B /* PetOverlayView.swift in Sources */,
 				BF100000000000000000A019 /* NewSSHSessionSheet.swift in Sources */,
 				BF100000000000000000A021 /* TerminalTabBar.swift in Sources */,
 				BF100000000000000000A020 /* SidebarView.swift in Sources */,
@@ -427,6 +446,7 @@
 				BF100000000000000000C005 /* SessionConfigOptionFlowTests.swift in Sources */,
 				BF100000000000000000C006 /* TerminalIntegrationTests.swift in Sources */,
 				BF100000000000000000C00E /* MarkdownParserTests.swift in Sources */,
+				BF100000000000000000C00F /* PetSuggestionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

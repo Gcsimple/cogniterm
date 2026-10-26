@@ -238,3 +238,70 @@ MVP 的功能是齐的，但**三个动作还是「两段式」**：
 
 `scripts/run-tests.sh`：App 测试 88 → **106**（MarkdownParser 13 + SessionManager 5），
 全量 235、0 失败。
+
+---
+
+## 九、终端宠物（F6，2026-10-26）
+
+模仿 dsh 生态里那种「大肥鱼」陪聊形象，但干的活是**实时补全**：在终端里
+跟着你正在敲的那一行给候选，像输入法。落点是终端工具栏右端的一只小东西，
+点开是候选气泡，点候选项 = **只键入、不回车**。
+
+### 先说清三个前提（都是查出来的，不是猜的）
+
+1. **dsh 的 bundle 里没有 pet。** `App/Resources/runtime/node_modules/@deepseek-ai/`
+   下 300+ 子包，`find -iname "*pet*"` 零命中。那是上游扩展生态，不在我们分发范围内，
+   抄不到也不用抄。
+2. **应用层原本看不到「当前命令行」。** SwiftTerm core 里 OSC 133 的语义提示
+   其实已经实现得很完整（`SemanticPrompt.swift` + `buffer.semanticContent` /
+   `semanticInput` + 分组/续行/`k=` 选项），但：**没有任何 shell 侧集成去发这些
+   标记**，App 侧也没有公开读取入口。所以「提示符在第几列结束」此刻拿不到。
+   `runCommandCaptured` 里那句「没有 OSC 133 时用静默 3 秒启发式」就是这个现状的注脚。
+3. **但键盘输入有唯一漏斗。** `TerminalViewDelegate.send(source:data:)`
+   （`TerminalPaneView.swift:969`）是键盘、粘贴、鼠标编码进 PTY 的必经之路；
+   App 自己发出的（插入、审批卡注入、宠物接受）也都过 `TerminalSession.send`。
+   于是**在 `send` 里顺手记一份字节流，就等价于「用户这一行打了什么」**——
+   不需要知道提示符长什么样，因为每按一次 ↵ 缓冲区就清空、新行从零开始。
+
+### 结构
+
+| 文件 | 职责 |
+| --- | --- |
+| `Models/PetInputBuffer.swift` | 影子行缓冲区：字节 → 当前行 + 置信度（`exact` / `stale(原因)`） |
+| `Models/PetSuggestion.swift` | 候选项 + 打分（纯函数，无 IO） |
+| `Services/PetContextStore.swift` | 历史（`~/.zsh_history` 扩展格式）/ 对话里的命令 / 目录列表 |
+| `Views/PetOverlayView.swift` | 工具栏里的宠物本体 + popover 气泡 |
+
+### 三个设计决定
+
+- **失配就说出来，不硬猜。** Tab 补全、↑ 历史、Ctrl-R、⌥← 这些会改写行的按键，
+  字节流里反推不出结果 → 一律打成 `stale(原因)`，气泡头直接显示原因，且**只给
+  「最常用」不给「按你打的前缀补」**。`exact` 才做行内补全。按一次 ↵ 自动复原。
+- **打分带槽位。** 空行时「最常用」4 条 + 「刚聊到的」1 条——否则历史一多，
+  agent 说过的那条永远挤不进前五，这条数据线就白接了。
+- **接受 = Ctrl-U + 键入 + 不回车。** 先 kill 掉整行再写字，语义与代码块「插入」
+  一致：东西落到命令行上，按不按 ↵ 由人决定。高风险候选（过 `RiskEvaluator`）
+  标红，第一次点击只是「摆出风险」，第二次才落字。
+
+### 四个坑（都实测踩过）
+
+1. **`repeatForever` 的隐式动画不能再放进工具栏。** 用它做「呼吸」时，
+   宠物每启动一次就漂到别处（三次分别落在对话区不同高度），而它自己的角标
+   却还在正确位置——一个视图的绘制几何与布局几何脱钩了。删掉呼吸、只留
+   有限动画（眨眼）后立刻归位。**判断依据：位置随重启漂移 = 动画层，不是布局层。**
+2. **`GeometryReader` 会吃掉提案尺寸。** 放进工具栏 HStack 的按钮标签里会把
+   按钮撑开，图形画到别处。尺寸写死成常量（22pt 的小图标不值得响应式）。
+3. **ZStack 角落浮层不可靠。** 靠 `.bottomTrailing` 定位的浮层，内容尺寸一变
+   （气泡展开）就跟着漂。改成工具栏 HStack 的兄弟视图 + 系统 popover，布局确定。
+4. **popover 会在首帧自己弹出来。** 直接绑 `$isExpanded` 时实测启动即展开；
+   加一道「点过才允许呈现」的交互闸门（`hasInteracted && isExpanded`）。
+
+已知边界：`~/.zsh_history` 只在首次读、常驻内存，本会话新跑的命令靠「整行前缀
+匹配」自己补上；跨会话要 `PetContextStore.invalidateHistory()`。
+
+### 测试账
+
+`scripts/run-tests.sh`：App 106 → **127**（影子缓冲 10 + 打分 7 + 历史解析 4），
+全量 0 失败。视觉：`docs/images/pet-idle.png` / `pet-suggestions.png`
+（后者是真机截图：终端里已敲 `ls`，气泡给出 `ls -l` / `ls -la ~/CogniTerm`
+/ `ls -la`，图例「历史」，底部「点击只键入、不回车」）。

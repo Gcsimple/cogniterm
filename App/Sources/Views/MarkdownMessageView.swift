@@ -37,6 +37,9 @@ struct MarkdownMessageView: View {
                                   code: code,
                                   workspaceRoot: workspaceRoot,
                                   onRun: onRunCommand)
+                // 记一笔给终端宠物：模型刚说过的命令，是最可能被下一步用到的东西。
+                // 多行块与脚本由 store 自己丢掉，这里不做判断。
+                .onAppear { PetContextStore.shared.recordAgentCommand(code) }
 
         case .bullets(let items):
             VStack(alignment: .leading, spacing: 4) {
