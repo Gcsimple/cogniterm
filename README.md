@@ -40,6 +40,7 @@ macOS 14+ · Swift / SwiftUI · SwiftTerm · ACP · MCP · 无 Electron · MIT
 | **实时切换模型** | ACP `session/set_config_option`，无需重启会话；失败不做乐观更新 |
 | **会话重放** | 直接读 dsh 的会话日志（JSONL），逐步还原工具调用与审批过程 |
 | **终端 → 对话** | `⌘I` 发送选区，`⌘⇧I` 发送当前屏幕末尾 N 行（`>` 引用块，可整块删除） |
+| **终端补全精灵** | 工具栏角落跟着你这一行给候选（历史 / 当前目录 / 刚聊到的命令），行内灰字可 `Tab` 接受，点击候选只键入不回车；会改写行的按键一律降级为「最常用」，不硬猜 |
 
 ---
 
@@ -251,6 +252,8 @@ docs/                 设计文档（研究稿，含决策记录）
 - [`docs/agent-terminal-fusion.md`](docs/agent-terminal-fusion.md) — 两个执行平面的断层分析与缝合方案
 - [`docs/terminal-interaction-upgrade.md`](docs/terminal-interaction-upgrade.md) — 终端交互盘点与分层实施
 - [`docs/ssh-remote-support-proposal.md`](docs/ssh-remote-support-proposal.md) — SSH 会话的架构接缝与选项注入防线
+
+版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
 ---
 
