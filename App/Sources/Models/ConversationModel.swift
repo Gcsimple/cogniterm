@@ -277,6 +277,15 @@ final class ConversationModel: ObservableObject {
         rows.append(TranscriptRow(kind: .user, text: text))
     }
 
+    /// 直接落一条助手消息。
+    ///
+    /// 正常路径是 ACP 的 `agentMessageChunk` 逐块累积（见 `handleUpdate`）；
+    /// 这个方法给两类调用者：外观回归脚本（`--demo-transcript`）与单元测试——
+    /// 它们需要「一条已经完整的助手消息」，而不是自己伪造一串事件。
+    func appendAssistant(_ text: String) {
+        rows.append(TranscriptRow(kind: .assistant, text: text))
+    }
+
     func handlePromptResult(_ result: PromptResult) {
         isWorking = false
         if result.stopReason != "request_permission" && result.stopReason != "end_turn" {

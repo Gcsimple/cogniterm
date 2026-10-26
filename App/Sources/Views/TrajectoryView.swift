@@ -3,6 +3,9 @@ import SwiftUI
 /// 会话轨迹（展示面）：用户输入 / 助手消息 / 工具调用 / 计划 / 系统提示。
 struct TrajectoryView: View {
     @ObservedObject var conversation: ConversationModel
+    /// 代码块「运行」的出口。**由上层注入**：只有它同时握有终端会话、
+    /// 输出捕获与「把输出回喂成一次 prompt」这三件事（见 MainSplitView）。
+    var onRunCommand: (String) -> Void = { _ in }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -12,7 +15,10 @@ struct TrajectoryView: View {
                         emptyState
                     }
                     ForEach(conversation.rows) { row in
-                        RowView(row: row, conversation: conversation).id(row.id)
+                        RowView(row: row,
+                                conversation: conversation,
+                                onRunCommand: onRunCommand)
+                            .id(row.id)
                     }
                     if conversation.isWorking {
                         HStack(spacing: 6) {
@@ -58,6 +64,7 @@ struct TrajectoryView: View {
 private struct RowView: View {
     let row: TranscriptRow
     @ObservedObject var conversation: ConversationModel
+    let onRunCommand: (String) -> Void
 
     var body: some View {
         switch row.kind {
@@ -66,9 +73,19 @@ private struct RowView: View {
                    color: .accentColor.opacity(0.18),
                    alignment: .trailing)
         case .assistant:
-            bubble(Text(row.text).font(.body),
-                   color: Color(nsColor: .controlBackgroundColor),
-                   alignment: .leading)
+            // 助手消息走 Markdown：正文裸文本，代码块带动作条。
+            // 用户消息**不渲染**——人写的就是字，别替他把 `2*3` 变成粗体。
+            HStack(alignment: .top) {
+                MarkdownMessageView(text: row.text,
+                                    workspaceRoot: conversation.workspaceRoot,
+                                    onRunCommand: onRunCommand)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(Color(nsColor: .controlBackgroundColor),
+                                in: RoundedRectangle(cornerRadius: 10))
+                    .frame(maxWidth: 520, alignment: .leading)
+                Spacer(minLength: 40)
+            }
         case .tool:
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 8) {

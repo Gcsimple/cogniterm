@@ -203,10 +203,39 @@ final class DemoPeer {
                     success(id: id, result: ["stopReason": "request_permission"]),
                 ]
             }
+            // 演示模式的回复刻意带 Markdown：这是唯一不接真模型也能看到
+            // 「代码块动作条」的路径（复制 / 插入 / 运行只对单行命令出现）。
+            let demoReply = """
+            ### 演示回复
+
+            这段话里有行内代码 `SessionManager.activateTab(at:)` 和一个路径
+            App/Sources/Views/TerminalTabBar.swift——它们不该被当成普通文字。
+
+            改法三步：
+
+            1. 先看当前状态
+            2. 再改菜单
+            3. 最后跑测试
+
+            单行命令带「运行」按钮：
+
+            ```bash
+            git status --short
+            ```
+
+            多行块只给「复制 / 插入」（一次性塞进终端等于没让人看过）：
+
+            ```swift
+            Button("标签 1") {
+                sessions.activateTab(at: 0)
+            }
+            .keyboardShortcut("1", modifiers: .command)
+            ```
+            """
             return [
                 planEvent(),
                 usageEvent(used: 1840, size: 128000),
-                agentMessage(id: "m-\(prompts)", text: "（演示对端）这是第 \(prompts) 轮的示例回复。"),
+                agentMessage(id: "m-\(prompts)", text: demoReply),
                 success(id: id, result: ["stopReason": "end_turn"]),
             ]
 

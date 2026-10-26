@@ -19,6 +19,8 @@ struct MainSplitView: View {
     @ObservedObject private var terminal = TerminalSession.shared
     /// 新建 SSH 会话表单。
     @State private var showNewSSHSession = false
+    /// 菜单/快捷键下发的一次性指令（Scene 级 `Commands` 够不到本视图的 `@State`）。
+    @ObservedObject private var appCommands = AppCommandCenter.shared
     /// 终端 MCP server（agent 的 run_in_terminal 执行平面）。观察它是为了让
     /// 侧栏那行端点状态在监听成功/失败时自动刷新。
     @ObservedObject private var terminalMCP = TerminalMCPServer.shared
@@ -92,6 +94,20 @@ struct MainSplitView: View {
             }
             // 零配置：自动播种 profile，有 Key 直连，无 Key 弹一次引导。
             await sidecar.bootstrap()
+
+            #if DEBUG
+            // 外观回归入口：`defaults write com.cogniterm.app demoTranscriptOnLaunch -bool YES`
+            // 只往对话区落一段示例消息，不连 agent、不发请求。用于截图核对
+            // Markdown 排版与代码块动作条——**真机外观没法用单测断言**，
+            // 而 UI 自动化在这台机器上被 TCC 挡死（osascript -10004）。
+            //
+            // 用 UserDefaults 而不是启动参数：`open --args` 在本机实测传不进去
+            // （`pgrep -f -- --flag` 命中不到，2026-10-26）。
+            if UserDefaults.standard.bool(forKey: "demoTranscriptOnLaunch") {
+                conversation.appendUser("终端会话切换能不能不用鼠标？")
+                conversation.appendAssistant(Self.demoTranscript)
+            }
+            #endif
         }
         // D1：终端里 cd 之后（OSC 7），审批卡与规则匹配的 cwd 跟着真实目录走。
         // 只同步 conversation.workspaceRoot——sidecar 的 workspaceRoot 是会话级
@@ -106,6 +122,10 @@ struct MainSplitView: View {
         }
         .sheet(isPresented: $showNewSSHSession) {
             NewSSHSessionSheet()
+        }
+        // ⇧⌘N：菜单在视图树之外，只能靠计数变化把 sheet 拉起来。
+        .onChange(of: appCommands.newSSHSessionRequests) { _, _ in
+            showNewSSHSession = true
         }
         .sheet(item: $replay) { item in
             SessionReplayView(state: item.state, title: item.title)
@@ -141,7 +161,8 @@ struct MainSplitView: View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 cwdDivergenceBar
-                TrajectoryView(conversation: conversation)
+                TrajectoryView(conversation: conversation,
+                               onRunCommand: runCommandFromMessage)
                 if let pending = conversation.pendingTerminalCommand {
                     TerminalCommandCard(
                         pending: pending,
@@ -339,6 +360,46 @@ struct MainSplitView: View {
     /// 上限给对话区留够空间（窗口 minHeight 600 - 320 对话区 - chrome）。
     static func clampedTerminalHeight(_ value: Double) -> Double {
         min(max(value, 120), 480)
+    }
+
+    #if DEBUG
+    /// `--demo-transcript` 用的示例回复：覆盖标题 / 段落 / 有序列表 /
+    /// 单行代码块（带「运行」）/ 多行代码块（只有复制与插入）/ 行内 code /
+    /// 路径 / URL。改排版时先看这一屏。
+    static let demoTranscript = """
+    ### 结论
+
+    切换成本都在**鼠标**上：`TerminalTabBar.swift` 里只有 `onTapGesture`。
+
+    ### 改法
+
+    1. 菜单加 ⌘1…⌘9，落到 `sessions.activateTab(at:)`
+    2. ⇧⌘[ / ⇧⌘] 循环切换
+    3. ⌘W 只关 SSH 标签
+
+    ```bash
+    git status --short
+    ```
+
+    ```swift
+    Button("标签 1") { sessions.activateTab(at: 0) }
+    ```
+
+    SwiftTerm 只在**带 ⌘ 的键**上问宿主菜单（`MacTerminalView.swift:2055`），
+    所以 ⌃Tab 走不通，见 https://github.com/Gcsimple/cogniterm 。
+    """
+    #endif
+
+    /// 对话里代码块「运行」的落点。
+    ///
+    /// 与审批卡「在终端运行」共用同一条路径：注入**活跃会话**（本地或 SSH），
+    /// 拿到收敛后的输出再回喂 agent。区别只在前置校验——代码块的「运行」
+    /// 在视图层已经过 `RiskEvaluator`，高风险命令还会展开一次确认条，
+    /// 所以这里不再弹审批卡（否则同一个决定要确认两遍）。
+    private func runCommandFromMessage(_ command: String) {
+        sessions.runCommandCaptured(command) { output in
+            self.feedTerminalOutputBackToAgent(command: command, output: output)
+        }
     }
 
     /// 「在终端运行」/ MCP 迟到输出收敛后，把终端输出作为新的 prompt 回喂给 agent。

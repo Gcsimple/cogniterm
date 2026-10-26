@@ -497,6 +497,21 @@ final class TerminalSession: ObservableObject, Identifiable {
         pty?.write(Data(data))
     }
 
+    /// 把一条命令**键入**终端但不回车（对话里代码块的「插入」动作）。
+    ///
+    /// 语义刻意与「运行」分开：模型给的命令先落到命令行上，用户自己看一遍、
+    /// 改完再按 ↵。这是审批之外的第二道人工闸——不花任何额外点击，
+    /// 但人一定扫过一眼。
+    ///
+    /// 不校验 `isTerminalReady`：PTY 没起来时 `write` 本来就是 no-op，
+    /// 而这里多一个静默返回会让「按钮点了没反应」变得更难查。
+    func insertCommand(_ command: String) {
+        guard !command.isEmpty else { return }
+        send(ArraySlice(Array(command.utf8)))
+        // 焦点交给终端：用户下一步就是按 ↵，不该再点一下。
+        focusTerminal()
+    }
+
     /// 执行一个应用级快捷键。只处理 `TerminalShortcut` 列出的动作，
     /// 其余按键早在 `performKeyEquivalent` 里就透传给 shell 了。
     func handleShortcut(_ shortcut: TerminalShortcut) {

@@ -65,6 +65,41 @@ struct TerminalCommands: Commands {
 
     var body: some Commands {
         CommandMenu("终端") {
+            // ── 标签层（⌘1…⌘9 / ⌘⇧[ ⌘⇧] / ⌘W / ⇧⌘N）
+            //
+            // 单标签时 ⌘1 没有意义，整组不出现——不给用户一堆点了没反应的菜单项。
+            // 键位只用**带 ⌘ 的**组合：SwiftTerm 的 keyDown 只在 event 带 Command
+            // 时才把键问一次宿主菜单（MacTerminalView.swift:2055），
+            // ⌃Tab 之类会被原样发给 shell，菜单项等于不存在。
+            if sessions.sessions.count > 1 {
+                ForEach(Array(sessions.sessions.prefix(9).enumerated()),
+                        id: \.element.id) { index, session in
+                    Button("标签 \(index + 1)：\(session.label)") {
+                        sessions.activateTab(at: index)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))),
+                                      modifiers: .command)
+                }
+                Divider()
+            }
+
+            Button("上一个标签") { sessions.cycleTab(forward: false) }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .disabled(sessions.sessions.count < 2)
+            Button("下一个标签") { sessions.cycleTab(forward: true) }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .disabled(sessions.sessions.count < 2)
+
+            // 只剩本地会话时 disabled → ⌘W 自动落回系统「关闭窗口」，
+            // 而不是变成一个吞掉按键的死项。
+            Button("关闭 SSH 标签") { sessions.closeActiveTabIfPossible() }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(!sessions.hasActiveRemoteSession)
+            Button("新建 SSH 会话…") { AppCommandCenter.shared.requestNewSSHSession() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
+            Divider()
+
             Button("清屏") { sessions.activeSession.handleShortcut(.clear) }
                 .keyboardShortcut("k", modifiers: .command)
                 .disabled(!enabled)

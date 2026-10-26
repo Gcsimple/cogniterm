@@ -184,4 +184,64 @@ final class SessionManagerTests: XCTestCase {
 
         XCTAssertNotNil(bad.target)
     }
+
+    // MARK: - 键盘层（⌘1…⌘9 / ⌘⇧[ ⌘⇧] / ⌘W）
+
+    /// 环形步进：首尾相接，两个方向都要跨过边界。
+    func testNextTabIndexWrapsAround() {
+        XCTAssertEqual(SessionManager.nextTabIndex(current: 0, count: 3, forward: true), 1)
+        XCTAssertEqual(SessionManager.nextTabIndex(current: 2, count: 3, forward: true), 0)
+        XCTAssertEqual(SessionManager.nextTabIndex(current: 0, count: 3, forward: false), 2)
+        XCTAssertEqual(SessionManager.nextTabIndex(current: 1, count: 3, forward: false), 0)
+    }
+
+    /// 单标签下「下一个」不该产生动作，越界参数也不该把索引算到负值。
+    func testNextTabIndexRefusesDegenerateInput() {
+        XCTAssertNil(SessionManager.nextTabIndex(current: 0, count: 1, forward: true))
+        XCTAssertNil(SessionManager.nextTabIndex(current: 5, count: 3, forward: true))
+        XCTAssertNil(SessionManager.nextTabIndex(current: -1, count: 3, forward: true))
+    }
+
+    func testActivateTabIgnoresOutOfRangeAndSwitchesByPosition() {
+        let manager = makeManager()
+        let ssh = manager.openSSHSession(target: target, label: "box",
+                                         root: FileManager.default.homeDirectoryForCurrentUser)
+
+        manager.activateTab(at: 0)
+        XCTAssertEqual(manager.activeSession.kind, .local, "⌘1 = 第一个标签 = 本地")
+
+        manager.activateTab(at: 1)
+        XCTAssertEqual(manager.activeSessionID, ssh.id, "⌘2 = 第二个标签")
+
+        // 越界：旧实现会 index out of range 崩掉，现在必须是 no-op。
+        manager.activateTab(at: 9)
+        XCTAssertEqual(manager.activeSessionID, ssh.id)
+    }
+
+    func testCycleTabMovesThroughSessionsAndStopsWhenAlone() {
+        let manager = makeManager()
+        manager.cycleTab(forward: true)
+        XCTAssertEqual(manager.activeSession.kind, .local, "只有一个标签时不动")
+
+        let ssh = manager.openSSHSession(target: target, label: "box",
+                                         root: FileManager.default.homeDirectoryForCurrentUser)
+        manager.activateTab(at: 0)
+        manager.cycleTab(forward: true)
+        XCTAssertEqual(manager.activeSessionID, ssh.id)
+        manager.cycleTab(forward: true)
+        XCTAssertEqual(manager.activeSession.kind, .local, "⌘⇧] 从最后一个绕回第一个")
+    }
+
+    /// ⌘W 的语义：只关 SSH。返回 false 时菜单把键让回系统「关闭窗口」。
+    func testCloseActiveTabOnlyClosesRemoteSessions() {
+        let manager = makeManager()
+        XCTAssertFalse(manager.closeActiveTabIfPossible(),
+                       "只剩本地会话 → 不关任何东西，⌘W 应该落回关闭窗口")
+
+        manager.openSSHSession(target: target, label: "box",
+                               root: FileManager.default.homeDirectoryForCurrentUser)
+        XCTAssertTrue(manager.closeActiveTabIfPossible())
+        XCTAssertEqual(manager.sessions.count, 1)
+        XCTAssertEqual(manager.activeSession.kind, .local)
+    }
 }

@@ -168,6 +168,49 @@ final class SessionManager: ObservableObject {
 
     /// 选中会话的展示名（菜单/状态栏用）。
     var activeLabel: String { activeSession.label }
+
+    // MARK: - 键盘层（⌘1…⌘9 / ⌘⇧[ ⌘⇧] / ⌘W）
+
+    /// ⌘1…⌘9 的落点：按标签顺序激活（1 = 第一个）。0-based。
+    ///
+    /// 越界是 no-op 而不是崩：菜单项按会话数禁用，但键位可能在
+    /// 「刚关掉一个标签」的同一拍里打进来。
+    func activateTab(at index: Int) {
+        guard sessions.indices.contains(index) else { return }
+        activate(sessions[index].id)
+    }
+
+    /// ⌘⇧[ / ⌘⇧]：循环切换。
+    ///
+    /// 为什么不是 ⌃Tab：SwiftTerm 的 `keyDown` 只在**带 Command** 时
+    /// 才把键问一次宿主菜单（`MacTerminalView.swift:2055`），⌃Tab 会被
+    /// 直接发给 shell —— 菜单项形同虚设。带 ⌘ 的键才走得通。
+    func cycleTab(forward: Bool) {
+        let current = sessions.firstIndex { $0.id == activeSessionID } ?? 0
+        guard let next = Self.nextTabIndex(current: current,
+                                           count: sessions.count,
+                                           forward: forward) else { return }
+        activate(sessions[next].id)
+    }
+
+    /// 环形步进的纯函数（单测直接打这里，不依赖 PTY）。
+    /// 只有一个标签时返回 nil —— 单标签下「下一个」没有意义，不该产生任何动作。
+    static func nextTabIndex(current: Int, count: Int, forward: Bool) -> Int? {
+        guard count > 1, current >= 0, current < count else { return nil }
+        let step = forward ? 1 : -1
+        return (current + step + count) % count
+    }
+
+    /// ⌘W：只关 SSH 标签。
+    ///
+    /// 返回 false = 没关（只剩本地会话）。菜单据此把 ⌘W 让回系统的
+    /// 「关闭窗口」——本地 shell 是 agent 的默认执行平面，关掉它无路可走。
+    @discardableResult
+    func closeActiveTabIfPossible() -> Bool {
+        guard hasActiveRemoteSession else { return false }
+        close(activeSessionID)
+        return true
+    }
 }
 
 // MARK: - agent 的执行平面
