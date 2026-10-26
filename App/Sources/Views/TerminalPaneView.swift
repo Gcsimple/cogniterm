@@ -349,6 +349,17 @@ final class TerminalSession: ObservableObject, Identifiable {
     /// `cwd` 下的条目名（目录带尾部 `/`），随目录变化重载一次。
     @Published private(set) var petEntries: [String] = []
 
+    /// 风险候选的「第二次点击」武装状态。气泡和自动面板共用 —— 同一条
+    /// 风险命令在两个地方看到的风险态度必须一致。行内容一变就撤防。
+    @Published var petArmedCommand: String?
+
+    /// 自动面板被用户在**当前行**手动关过（× 或 Esc）。换新行（行清空）
+    /// 后自动复位：下一行该弹还弹，不记仇。
+    @Published private(set) var petAutoPanelDismissed = false
+
+    /// 上一次重算候选时的行文本，用于「换行/改行」时复位交互状态。
+    private var lastPetLine = ""
+
     /// 当前工作区根目录（也用作 shell 的起始 cwd）。
     private(set) var workspaceRoot: URL?
 
@@ -551,9 +562,34 @@ final class TerminalSession: ObservableObject, Identifiable {
         send(ArraySlice(Array(suffix.utf8)))
     }
 
+    /// 接受一条候选（气泡 / 自动面板共用）。风险命令第一次点击只武装、
+    /// 不执行；第二次确认才整行替换。**不回车** —— 决定权在人手上。
+    func acceptPetSuggestion(_ suggestion: PetSuggestion) {
+        if suggestion.isRisky && petArmedCommand != suggestion.command {
+            petArmedCommand = suggestion.command
+            return
+        }
+        petArmedCommand = nil
+        replaceCommandLine(suggestion.command)
+    }
+
+    /// 用户主动收起自动面板（× / Esc）：本行不再主动展开。
+    func dismissPetAutoPanel() {
+        petAutoPanelDismissed = true
+    }
+
     /// 重算候选与行内灰字。每次输入后调用；目录条目是异步到的，到了再算一次。
     private func refreshPetSuggestions() {
         let input = petInput
+
+        // 行变了：撤掉风险武装（上一条命令的「再点一次」不能带到下一条）；
+        // 行清空（回车换新行）：解除「本行已关面板」。
+        if input.text != lastPetLine {
+            petArmedCommand = nil
+            if input.text.isEmpty { petAutoPanelDismissed = false }
+            lastPetLine = input.text
+        }
+
         let resolved = PetSuggestionEngine.suggest(
             line: input.text,
             leadingContext: input.leadingContext,
@@ -1308,6 +1344,31 @@ struct TerminalPanel: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .animation(.easeOut(duration: 0.15), value: session.isViewingHistory)
+        // 胖鱼打字时主动展开的候选面板：鱼用 anchorPreference 上报自己的
+        // 位置和可见性，面板在最外层渲染，盖在终端 NSView 之上、钉在鱼身下沿。
+        // 窗口内 SwiftUI 视图，不改变 firstResponder —— 键盘输入全程留在终端。
+        .overlayPreferenceValue(PetPanelPreferenceKey.self) { pref in
+            GeometryReader { proxy in
+                if pref.visible, let anchor = pref.anchor {
+                    let fishRect = proxy[anchor]
+                    let panelWidth: CGFloat = 320
+                    // 右缘与鱼对齐，空间不够（窗口窄）时向左收，始终留 8pt 边。
+                    let x = min(max(8, fishRect.maxX - panelWidth),
+                                proxy.size.width - panelWidth - 8)
+                    PetAutoPanel(
+                        suggestions: Array(session.petSuggestions.prefix(5)),
+                        ghostCommand: session.petGhostSuffix.map { session.petInput.text + $0 },
+                        armedCommand: session.petArmedCommand,
+                        onAccept: { session.acceptPetSuggestion($0) },
+                        onDismiss: { session.dismissPetAutoPanel() }
+                    )
+                    .frame(width: panelWidth)
+                    .offset(x: x, y: fishRect.maxY + 6)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: pref.visible)
+        }
     }
 
     /// 注入执行中：显示命令摘要 + 两个出口（不等静默直接回喂 / 丢弃不回喂）。

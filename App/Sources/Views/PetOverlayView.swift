@@ -2,17 +2,21 @@
 //  PetOverlayView.swift
 //  CogniTerm
 //
-//  终端工具栏里的那只胖鱼，以及它弹出的候选气泡。
+//  终端工具栏里的那只胖鱼，以及它的候选：
+//  - 点鱼 → 系统 popover 里的完整气泡
+//  - 打字时 → PetAutoPanel 主动展开（窗口内浮层，不抢键盘焦点）
 //
 //  两个刻意的选择（延续上一版的经验）：
 //
-//  1. **不往 TerminalView 的交互里插东西**。终端的选区、回看、鼠标编码
+//  1. **不往 TerminalView 的交互路径里插东西**。终端的选区、回看、鼠标编码
 //     由 SwiftTerm 自己管；行内灰字走单独的「非交互子视图」路线
-//     （见 `CogniTerminalView`），工具栏里的鱼和气泡则是普通 SwiftUI 视图。
+//     （见 `CogniTerminalView`）。自动面板也是普通 SwiftUI 视图，挂在
+//     面板最外层 overlay 上，靠 anchorPreference 钉在鱼身上 —— 不用
+//     NSPopover：popover 一旦出现会把 first responder 从终端抢走，
+//     用户的下一个键就敲不进 shell 了。
 //  2. **不做 ZStack 角落浮层定位宠物**。在 ZStack 里靠 alignment 定位的浮层，
 //     一旦内容尺寸变化（气泡展开）就会跟着漂 —— 实测过宠物从右下角跑到半空。
-//     放进工具栏 HStack 是确定性布局：它就在那一行里，位置由兄弟视图决定；
-//     候选项交给系统 popover，不用自己算坐标。
+//     放进工具栏 HStack 是确定性布局：它就在那一行里，位置由兄弟视图决定。
 //
 //  候选项接受 = 把整行写进终端但**不回车**，和对话里代码块的「插入」同语义：
 //  决定权始终在人手上。
@@ -29,8 +33,6 @@ struct PetOverlayView: View {
     /// 交互闸门，只有点过才允许呈现。
     @State private var isExpanded = false
     @State private var hasInteracted = false
-    /// 高风险候选的「第二次点击」状态：第一次只是把风险摆出来。
-    @State private var armedCommand: String?
 
     // 动画状态：眨眼。尾巴摆动由鱼身体内部自己管。
     @State private var isBlinking = false
@@ -43,14 +45,33 @@ struct PetOverlayView: View {
         session.petGhostSuffix.map { _ in .excited } ?? .idle
     }
 
+    /// 完整气泡正在展示（点鱼触发）。开着时自动面板让位，不叠两层。
+    private var popoverPresented: Bool { hasInteracted && isExpanded }
+
+    /// 打字过程中是否该**主动**展开候选面板。判定规则在纯函数
+    /// `PetAutoPanelPolicy` 里，视图只负责照做。
+    private var autoVisible: Bool {
+        PetAutoPanelPolicy.isVisible(
+            input: input,
+            suggestions: suggestions,
+            popoverPresented: popoverPresented,
+            dismissed: session.petAutoPanelDismissed
+        )
+    }
+
     var body: some View {
         glyph
             .help(hint)
+            // 把鱼在面板坐标系里的锚点 + 面板可见性上报给最外层容器，
+            // 由它在终端之上渲染自动面板（见 TerminalPaneView.body）。
+            .anchorPreference(key: PetPanelPreferenceKey.self, value: .bounds) { anchor in
+                PetPanelPreference(anchor: anchor, visible: autoVisible)
+            }
             .popover(isPresented: presentation, arrowEdge: .bottom) {
                 bubble
             }
             .onChange(of: isExpanded) { _, expanded in
-                if !expanded { armedCommand = nil }
+                if !expanded { session.petArmedCommand = nil }
             }
             .task {
                 // 眨眼：3 秒左右一次，140ms 闭合。只做有限动画。
@@ -112,7 +133,12 @@ struct PetOverlayView: View {
                     .padding(.vertical, 10)
             } else {
                 ForEach(suggestions) { suggestion in
-                    row(suggestion)
+                    PetSuggestionRow(
+                        suggestion: suggestion,
+                        armed: session.petArmedCommand == suggestion.command,
+                        isGhost: isGhost(suggestion),
+                        onAccept: { accept(suggestion) }
+                    )
                 }
                 footnote
             }
@@ -156,12 +182,37 @@ struct PetOverlayView: View {
         .padding(.vertical, 6)
     }
 
-    private func row(_ suggestion: PetSuggestion) -> some View {
-        let armed = armedCommand == suggestion.command
-        return Button {
-            accept(suggestion)
-        } label: {
-            HStack(spacing: 8) {
+    /// 这条候选是否正是行内灰字补的那一条（list 和灰字由此对得上号）。
+    private func isGhost(_ suggestion: PetSuggestion) -> Bool {
+        guard let suffix = session.petGhostSuffix, !suffix.isEmpty else { return false }
+        return suggestion.command == input.text + suffix
+    }
+
+    // MARK: 动作
+
+    private func accept(_ suggestion: PetSuggestion) {
+        session.acceptPetSuggestion(suggestion)
+        // 风险命令第一次点击只武装（armed 仍非空），气泡保持打开；
+        // 真的键入了（armed 被清空）才关气泡。
+        if session.petArmedCommand == nil { isExpanded = false }
+    }
+}
+
+// MARK: - 共享候选行
+
+/// 气泡和自动面板共用的一行候选。三处信息位：命令本体 / 风险标 /
+/// 「Tab」灰字标 / 来源标。
+struct PetSuggestionRow: View {
+
+    let suggestion: PetSuggestion
+    let armed: Bool
+    /// 正是行内灰字给出的那一条：打个 Tab 小标，把列表和灰字关联起来。
+    let isGhost: Bool
+    let onAccept: () -> Void
+
+    var body: some View {
+        Button(action: onAccept) {
+            HStack(spacing: 7) {
                 Text(suggestion.command)
                     .font(.system(size: 11.5, design: .monospaced))
                     .lineLimit(1)
@@ -172,6 +223,13 @@ struct PetOverlayView: View {
                     Text(armed ? "再点一次" : "有风险")
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.orange)
+                } else if isGhost {
+                    Text("Tab")
+                        .font(.system(size: 9, weight: .semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color(red: 0.09, green: 0.78, blue: 0.61).opacity(0.16)))
+                        .foregroundStyle(Color(red: 0.05, green: 0.55, blue: 0.44))
                 } else {
                     Text(suggestion.source.label)
                         .font(.caption2)
@@ -185,17 +243,83 @@ struct PetOverlayView: View {
         }
         .buttonStyle(.plain)
     }
+}
 
-    // MARK: 动作
+// MARK: - 主动展开的候选面板
 
-    private func accept(_ suggestion: PetSuggestion) {
-        if suggestion.isRisky, armedCommand != suggestion.command {
-            armedCommand = suggestion.command
-            return
+/// 打字时主动展开的候选列表。它是**窗口内普通 SwiftUI 视图**，不是
+/// NSPopover —— 这样键盘焦点始终留在终端里，用户可以一边看着列表一边
+/// 继续打字（接受走 Tab / →，鼠标点击是辅助路径）。
+struct PetAutoPanel: View {
+
+    let suggestions: [PetSuggestion]
+    /// 行内灰字对应的完整命令（nil = 当前没有灰字）。
+    let ghostCommand: String?
+    let armedCommand: String?
+    let onAccept: (PetSuggestion) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Text("胖鱼建议")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text("继续打字忽略 · Tab / → 接受灰字")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 6)
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(3)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
+            .padding(.vertical, 6)
+
+            Divider().opacity(0.4)
+
+            ForEach(suggestions) { suggestion in
+                PetSuggestionRow(
+                    suggestion: suggestion,
+                    armed: armedCommand == suggestion.command,
+                    isGhost: suggestion.command == ghostCommand,
+                    onAccept: { onAccept(suggestion) }
+                )
+            }
         }
-        armedCommand = nil
-        isExpanded = false
-        session.replaceCommandLine(suggestion.command)
+        .frame(width: 320, alignment: .leading)
+        .background(
+            .regularMaterial,
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.28), radius: 7, x: 0, y: 3)
+    }
+}
+
+/// 鱼身锚点 + 自动面板可见性，从工具栏里的鱼上报给最外层容器。
+struct PetPanelPreference: Equatable {
+    var anchor: Anchor<CGRect>?
+    var visible: Bool
+}
+
+struct PetPanelPreferenceKey: PreferenceKey {
+    static let defaultValue = PetPanelPreference(anchor: nil, visible: false)
+
+    static func reduce(value: inout PetPanelPreference, nextValue: () -> PetPanelPreference) {
+        let next = nextValue()
+        // 全树只有鱼一个上报方；有锚点就采用，可见性以最新值为准。
+        if let anchor = next.anchor { value.anchor = anchor }
+        value.visible = next.visible
     }
 }
 

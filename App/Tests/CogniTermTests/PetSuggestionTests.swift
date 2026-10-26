@@ -292,6 +292,198 @@ final class PetGhostKeyTests: XCTestCase {
     }
 }
 
+final class PetBuiltInCommandTests: XCTestCase {
+
+    /// 不依赖目录具体内容的小目录，专门测引擎规则。
+    private let smallCatalog: [PetBuiltInCommand] = [
+        .init(command: "ls -la", platforms: [.all], isStarter: true),
+        .init(command: "git status", platforms: [.all], isStarter: true),
+        .init(command: "git stash", platforms: [.all], isStarter: false),
+        .init(command: "ssh user@host", platforms: [.all], isStarter: false),
+        .init(command: "sudo apt update", platforms: [.linux], isStarter: false)
+    ]
+
+    private func suggest(
+        line: String,
+        leadingContext: String = "",
+        token: String,
+        kind: PetInputBuffer.Confidence = .exact,
+        entries: [String] = [],
+        history: [String] = [],
+        agentCommands: [String] = [],
+        builtIns: [PetBuiltInCommand],
+        limit: Int = 5
+    ) -> [PetSuggestion] {
+        PetSuggestionEngine.suggest(
+            line: line, leadingContext: leadingContext, token: token, kind: kind,
+            entries: entries, history: history, agentCommands: agentCommands,
+            builtIns: builtIns, limit: limit
+        )
+    }
+
+    func testFreshInstallCompletesFromBuiltInsAndFeedsGhostText() {
+        let suggestions = suggest(line: "git st", token: "git", builtIns: smallCatalog)
+        XCTAssertEqual(suggestions.first?.command, "git status")
+        XCTAssertEqual(suggestions.first?.source, .builtIn, "空历史时内置命令要顶上")
+        XCTAssertEqual(
+            PetGhostCompletion.suffix(line: "git st", isExact: true, suggestions: suggestions),
+            "atus",
+            "内置候选同样要能驱动行内灰字"
+        )
+    }
+
+    func testPersonalHistoryOutranksBuiltInForSameCommand() {
+        let suggestions = suggest(
+            line: "git st", token: "git",
+            history: ["git status"],
+            builtIns: smallCatalog
+        )
+        XCTAssertEqual(suggestions.first?.command, "git status")
+        XCTAssertEqual(suggestions.first?.source, .history,
+                       "同一条命令在个人历史里出现过时，来源必须标成历史而不是内置")
+    }
+
+    func testStarterBuiltInsFillEmptyLineOnlyWhenPersonalDataIsSparse() {
+        let fresh = suggest(line: "", token: "", builtIns: smallCatalog)
+        XCTAssertEqual(fresh.map(\.command), ["ls -la", "git status"])
+        XCTAssertTrue(fresh.allSatisfy { $0.source == .builtIn })
+
+        let rich = suggest(
+            line: "", token: "",
+            history: ["h1", "h2", "h3", "h4"],
+            agentCommands: ["agent-cmd"],
+            builtIns: smallCatalog
+        )
+        XCTAssertFalse(rich.contains { $0.source == .builtIn },
+                       "前五条被个人数据占满时，内置起手式不该挤进来")
+    }
+
+    func testStaleStateNeverPrefixMatchesBuiltIns() {
+        let suggestions = suggest(
+            line: "git st", token: "sta",
+            kind: .stale("shell 补全改写了当前行"),
+            builtIns: smallCatalog
+        )
+        // `git stash` 不是 starter 但恰好以 "git st" 开头：它出现就说明
+        // stale 状态下仍在按不可信前缀拼内置命令。
+        XCTAssertFalse(suggestions.contains { $0.command == "git stash" },
+                       "stale 的前缀不可信，非起手式的内置命令不许按前缀拼")
+        // 允许出现的内置命令只能是与当前行无关的起手式（小目录里 git status
+        // 恰好也是 starter，它作为通用兜底出现，与前缀匹配无关）。
+        let starterCommands = Set(smallCatalog.filter(\.isStarter).map(\.command))
+        XCTAssertTrue(suggestions
+            .filter { $0.source == .builtIn }
+            .allSatisfy { starterCommands.contains($0.command) })
+        XCTAssertEqual(suggestions.first?.command, "ls -la", "只剩起手式兜底是允许的")
+    }
+
+    func testBuiltInFirstWordMatchesOnlyAtCommandPosition() {
+        // 参数位（leadingContext 非空）：内置来源只允许整行前缀命中，
+        // 不许把首词沾边的 ssh / sudo 当成 `git` 的参数塞进来。
+        let atArgument = suggest(
+            line: "git s", leadingContext: "git ", token: "s",
+            builtIns: smallCatalog
+        )
+        for suggestion in atArgument where suggestion.source == .builtIn {
+            XCTAssertTrue(suggestion.command.hasPrefix("git s"),
+                          "参数位出现了非前缀的内置候选：\(suggestion.command)")
+        }
+        XCTAssertFalse(atArgument.contains { $0.command == "ssh user@host" })
+        XCTAssertFalse(atArgument.contains { $0.command == "sudo apt update" })
+
+        // 命令起始位：首词补全正常生效。
+        let atCommandStart = suggest(line: "ss", token: "ss", builtIns: smallCatalog)
+        XCTAssertTrue(atCommandStart.contains { $0.command == "ssh user@host" })
+    }
+
+    func testCatalogHygiene() {
+        let catalog = PetBuiltInCommands.catalog
+
+        // 无重复、无空行、单行；不收占位符半成品。
+        let commands = catalog.map(\.command)
+        XCTAssertEqual(Set(commands).count, commands.count, "内置目录有重复命令")
+        for command in commands {
+            XCTAssertFalse(command.trimmingCharacters(in: .whitespaces).isEmpty)
+            XCTAssertFalse(command.contains("\n"))
+            // 只拦 `<name>` 这种紧贴的占位符；`< file.txt` 的重定向是合法的。
+            XCTAssertNil(command.range(of: "<[A-Za-z][A-Za-z0-9_]*>", options: .regularExpression),
+                         "不应出现 <占位符>：\(command)")
+            XCTAssertFalse(command.contains("> /dev/"), "不应出现写设备的示例：\(command)")
+            XCTAssertFalse(command.contains("rm -rf /"), "永不收录破坏性示例：\(command)")
+            XCTAssertFalse(command.contains("777"), "永不收录 777 放权示例：\(command)")
+            XCTAssertFalse(command.contains("mkfs"), "永不收录格式化示例：\(command)")
+        }
+
+        // 起手式：≤5、全部来自跨平台组、且都在目录里。
+        let starterEntries = catalog.filter(\.isStarter)
+        XCTAssertLessThanOrEqual(starterEntries.count, 5)
+        XCTAssertTrue(starterEntries.allSatisfy { $0.platforms == [.all] })
+        XCTAssertEqual(Set(starterEntries.map(\.command)), Set(PetBuiltInCommands.starters))
+
+        // 两个平台的专属命令都得有代表。
+        XCTAssertTrue(catalog.contains { $0.platforms == [.macOS] })
+        XCTAssertTrue(catalog.contains { $0.platforms == [.linux] })
+    }
+}
+
+final class PetAutoPanelPolicyTests: XCTestCase {
+
+    private let two = [
+        PetSuggestion(id: "git status", command: "git status", source: .builtIn, isRisky: false),
+        PetSuggestion(id: "git stash", command: "git stash", source: .builtIn, isRisky: false)
+    ]
+
+    private func typing(_ line: String) -> PetInputBuffer {
+        var buffer = PetInputBuffer()
+        buffer.consume(ArraySlice(Array(line.utf8)))
+        return buffer
+    }
+
+    func testExpandsOnlyWhenExactNonEmptyLineHasAtLeastTwoCandidates() {
+        XCTAssertTrue(PetAutoPanelPolicy.isVisible(
+            input: typing("git s"), suggestions: two,
+            popoverPresented: false, dismissed: false))
+
+        let one = Array(two.prefix(1))
+        XCTAssertFalse(PetAutoPanelPolicy.isVisible(
+            input: typing("git s"), suggestions: one,
+            popoverPresented: false, dismissed: false),
+            "只有 1 条候选时灰字已经够了，不弹列表")
+        XCTAssertFalse(PetAutoPanelPolicy.isVisible(
+            input: PetInputBuffer(), suggestions: two,
+            popoverPresented: false, dismissed: false),
+            "空行不主动展开")
+        XCTAssertFalse(PetAutoPanelPolicy.isVisible(
+            input: typing("git s"), suggestions: [],
+            popoverPresented: false, dismissed: false))
+    }
+
+    func testStalePastePopoverAndDismissalAllSuppress() {
+        // 按 Tab 后影子不可信（stale）—— 含裸 Esc，同一路径。
+        var stale = typing("git s")
+        stale.consume(ArraySlice([0x09]))
+        XCTAssertFalse(PetAutoPanelPolicy.isVisible(
+            input: stale, suggestions: two,
+            popoverPresented: false, dismissed: false))
+
+        var pasting = PetInputBuffer()
+        pasting.consume(ArraySlice(Array("\u{1B}[200~".utf8)))
+        XCTAssertFalse(PetAutoPanelPolicy.isVisible(
+            input: pasting, suggestions: two,
+            popoverPresented: false, dismissed: false),
+            "括号粘贴中不展开")
+
+        XCTAssertFalse(PetAutoPanelPolicy.isVisible(
+            input: typing("git s"), suggestions: two,
+            popoverPresented: true, dismissed: false),
+            "完整气泡开着时让位，不叠两层")
+        XCTAssertFalse(PetAutoPanelPolicy.isVisible(
+            input: typing("git s"), suggestions: two,
+            popoverPresented: false, dismissed: true),
+            "本行被手动关过后不再弹")
+    }
+}
+
 final class PetHistoryParsingTests: XCTestCase {
 
     func testExtendedZshFormatIsUnwrapped() {
