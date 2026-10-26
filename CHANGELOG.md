@@ -4,7 +4,9 @@
 日志格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 日期一律 `YYYY-MM-DD`。
 
-## [未发布]
+## [0.2.0] - 2026-10-26
+
+第二个技术预览版，主题是**终端里的补全精灵**：命令行还没敲完，候选已经在旁边了。
 
 ### 新增
 
@@ -21,6 +23,17 @@
     命令不会被历史挤掉。
   - **候选来源**：`~/.zsh_history`（含扩展格式）、当前目录条目、对话里模型给出的
     单行命令；高风险命令过 `RiskEvaluator`，标红并需二次点击才落字。
+  - **内置命令目录**：新装、空历史、冷启动也能补——`git st` 照样能补成 `git status`。
+    收录 macOS / Linux 常用命令，平台专属项（`brew …` / `systemctl …`）只在敲出
+    对应前缀时出现，空行里只给跨平台起手式；个人历史 / 对话里已有的同一条命令
+    优先显示为「历史」而不是「内置」。
+  - **打字时主动展开候选面板**：敲出两条以上候选时，在鱼身下沿浮出前五条
+    （只对得起一条时灰字就够了，不弹）；`×` 收起后本行不再打扰，回车换行自动复位。
+    面板是窗口内 SwiftUI 浮层而不是 `NSPopover`——popover 会抢走 first responder，
+    浮出来之后下一个键就敲不进 shell 了。
+  - **风险候选二次确认统一**：气泡与自动面板共用同一份武装状态，第一次点击只
+    「摆出风险」，第二次才落字；行内容一变自动撤防。
+  - 列表里给「正是行内灰字补的那条」打 `Tab` 小标，列表与灰字对得上号。
 - 对话消息里的单行命令自动记入宠物上下文（`PetContextStore`），多行块与脚本忽略。
 
 ### 变更
@@ -41,7 +54,7 @@
 - `docs/operational-roadmap.md` 增补「九、终端宠物（F6）」：三个前提、四个结构文件、
   三个设计决定、四个实测踩过的坑（`repeatForever` 隐式动画导致绘制几何与布局几何
   脱钩、`GeometryReader` 吃掉提案尺寸、ZStack 角落浮层随内容漂、popover 首帧自弹），
-  以及测试账（App 106 → 127）。
+  以及测试账（App 106 → 133，内置命令目录 + 自动面板落地后 141）。
 
 ## [0.1.0] - 2026-10-20
 
@@ -71,5 +84,5 @@
 
 - MIT 许可证 + 第三方声明（`THIRD_PARTY_NOTICES.md`），清掉个人开发信息。
 
-[未发布]: https://github.com/Gcsimple/cogniterm/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/Gcsimple/cogniterm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Gcsimple/cogniterm/releases/tag/v0.1.0
