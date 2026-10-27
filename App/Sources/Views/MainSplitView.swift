@@ -107,6 +107,37 @@ struct MainSplitView: View {
                 conversation.appendUser("终端会话切换能不能不用鼠标？")
                 conversation.appendAssistant(Self.demoTranscript)
             }
+
+            // 审批卡抓手：`defaults write com.cogniterm.app demoApprovalOnLaunch -bool YES`
+            // 演示对端的第一条 prompt 必定回 tool_call(`rm -rf build/`) +
+            // request_permission，于是启动就能截到「agent 想跑命令，等你批准」这一屏。
+            if UserDefaults.standard.bool(forKey: "demoApprovalOnLaunch") {
+                await sidecar.enterDemo()
+                if let sid = sidecar.sessionID {
+                    let text = "清一下构建产物"
+                    conversation.appendUser(text)
+                    conversation.setWorking(true)
+                    do {
+                        if let result = try await sidecar.client?.prompt(sessionId: sid, text: text) {
+                            conversation.handlePromptResult(result)
+                        } else {
+                            conversation.setWorking(false)
+                        }
+                    } catch {
+                        conversation.appendSystem("prompt 失败：\(error)")
+                        conversation.setWorking(false)
+                    }
+                }
+            }
+
+            // 宠物抓手：`defaults write com.cogniterm.app demoPetLine -string "git st"`
+            // 喂一行文本进去，等价于「用户刚敲完这行」——宠物面板与行内灰字都是
+            // 输入驱动的，不这样喂就得真敲键盘（TCC 挡死，见 TerminalSession.injectDemoInput）。
+            if let demoLine = UserDefaults.standard.string(forKey: "demoPetLine"), !demoLine.isEmpty {
+                // 等 PTY 起来：scheduleLaunch 是异步的，早喂会写进 nil pty。
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                sessions.activeSession.injectDemoInput(demoLine)
+            }
             #endif
         }
         // D1：终端里 cd 之后（OSC 7），审批卡与规则匹配的 cwd 跟着真实目录走。

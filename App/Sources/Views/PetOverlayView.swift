@@ -48,30 +48,23 @@ struct PetOverlayView: View {
     /// 完整气泡正在展示（点鱼触发）。开着时自动面板让位，不叠两层。
     private var popoverPresented: Bool { hasInteracted && isExpanded }
 
-    /// 打字过程中是否该**主动**展开候选面板。判定规则在纯函数
-    /// `PetAutoPanelPolicy` 里，视图只负责照做。
-    private var autoVisible: Bool {
-        PetAutoPanelPolicy.isVisible(
-            input: input,
-            suggestions: suggestions,
-            popoverPresented: popoverPresented,
-            dismissed: session.petAutoPanelDismissed
-        )
-    }
-
     var body: some View {
         glyph
             .help(hint)
-            // 把鱼在面板坐标系里的锚点 + 面板可见性上报给最外层容器，
-            // 由它在终端之上渲染自动面板（见 TerminalPaneView.body）。
-            .anchorPreference(key: PetPanelPreferenceKey.self, value: .bounds) { anchor in
-                PetPanelPreference(anchor: anchor, visible: autoVisible)
-            }
+            // 只上报**锚点**。可见性不能塞进这个闭包：`anchorPreference` 的值
+            // 只在布局（bounds）变化时重算，鱼不动而输入变了的话，闭包里的
+            // 状态会永远停在首帧（实测 `visible` 恒为 false，面板从不出现）。
+            // 所以「该不该弹」由 `TerminalSession` 算成 @Published 广播，
+            // 这里只负责「弹在哪」。
+            .anchorPreference(key: PetPanelAnchorKey.self, value: .bounds) { $0 }
             .popover(isPresented: presentation, arrowEdge: .bottom) {
                 bubble
             }
             .onChange(of: isExpanded) { _, expanded in
                 if !expanded { session.petArmedCommand = nil }
+                // 气泡开着时自动面板让位：这个 bool 也要同步给 session，
+                // 否则面板算出来的可见性与实际叠不叠对不上。
+                session.petPopoverPresented = hasInteracted && expanded
             }
             .task {
                 // 眨眼：3 秒左右一次，140ms 闭合。只做有限动画。
@@ -306,20 +299,18 @@ struct PetAutoPanel: View {
     }
 }
 
-/// 鱼身锚点 + 自动面板可见性，从工具栏里的鱼上报给最外层容器。
-struct PetPanelPreference: Equatable {
-    var anchor: Anchor<CGRect>?
-    var visible: Bool
-}
+/// 鱼身在容器坐标系里的锚点，从工具栏里的鱼上报给最外层容器。
+///
+/// 只带位置，**不带状态**：`anchorPreference` 的闭包只在布局变化时重算，
+/// 把「面板该不该弹」这种随输入变化的 bool 一起塞进来，它就会永远停在
+/// 首帧的值（实测 `visible` 恒为 false，自动面板从不出现）。
+/// 可见性改由 `TerminalSession.petAutoPanelVisible` 广播。
+struct PetPanelAnchorKey: PreferenceKey {
+    static let defaultValue: Anchor<CGRect>? = nil
 
-struct PetPanelPreferenceKey: PreferenceKey {
-    static let defaultValue = PetPanelPreference(anchor: nil, visible: false)
-
-    static func reduce(value: inout PetPanelPreference, nextValue: () -> PetPanelPreference) {
-        let next = nextValue()
-        // 全树只有鱼一个上报方；有锚点就采用，可见性以最新值为准。
-        if let anchor = next.anchor { value.anchor = anchor }
-        value.visible = next.visible
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        // 全树只有鱼一个上报方，有锚点就采用。
+        if let next = nextValue() { value = next }
     }
 }
 

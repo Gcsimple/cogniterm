@@ -349,6 +349,23 @@ final class TerminalSession: ObservableObject, Identifiable {
     /// `cwd` 下的条目名（目录带尾部 `/`），随目录变化重载一次。
     @Published private(set) var petEntries: [String] = []
 
+    /// 打字时该不该**主动**展开候选面板。
+    ///
+    /// 算在会话里而不是视图里，原因很具体：最外层 overlay 靠 `anchorPreference`
+    /// 拿鱼的位置，而那个闭包只在**布局**变化时重算——把随输入变化的 bool
+    /// 一起塞进去，它会永远停在首帧（实测 `visible` 恒为 false，面板从不出现）。
+    /// 走 @Published 才能让 overlay 跟着刷新。
+    @Published private(set) var petAutoPanelVisible = false
+
+    /// 完整气泡（点鱼打开的 popover）是否开着。由视图同步进来：
+    /// 「气泡开着时面板让位」要算进上面的判定，否则会叠两层。
+    @Published var petPopoverPresented = false {
+        didSet {
+            guard petPopoverPresented != oldValue else { return }
+            recalcPetAutoPanelVisibility()
+        }
+    }
+
     /// 风险候选的「第二次点击」武装状态。气泡和自动面板共用 —— 同一条
     /// 风险命令在两个地方看到的风险态度必须一致。行内容一变就撤防。
     @Published var petArmedCommand: String?
@@ -576,6 +593,7 @@ final class TerminalSession: ObservableObject, Identifiable {
     /// 用户主动收起自动面板（× / Esc）：本行不再主动展开。
     func dismissPetAutoPanel() {
         petAutoPanelDismissed = true
+        petAutoPanelVisible = false
     }
 
     /// 重算候选与行内灰字。每次输入后调用；目录条目是异步到的，到了再算一次。
@@ -609,6 +627,17 @@ final class TerminalSession: ObservableObject, Identifiable {
             line: input.text,
             isExact: input.confidence.isExact,
             suggestions: resolved
+        )
+        recalcPetAutoPanelVisibility()
+    }
+
+    /// 面板可见性：纯策略 + 当前状态。输入、候选、气泡开关任何一处变了都重算。
+    private func recalcPetAutoPanelVisibility() {
+        petAutoPanelVisible = PetAutoPanelPolicy.isVisible(
+            input: petInput,
+            suggestions: petSuggestions,
+            popoverPresented: petPopoverPresented,
+            dismissed: petAutoPanelDismissed
         )
     }
 
@@ -646,6 +675,20 @@ final class TerminalSession: ObservableObject, Identifiable {
         send(ArraySlice(Array(command.utf8)))
         focusTerminal()
     }
+
+    #if DEBUG
+    /// 截图夹具：把一行文本**真的敲进 PTY**，等价于「用户刚敲完这行」。
+    ///
+    /// 走 `send` 而不是只喂影子缓冲区：终端上得真出现这行字，否则面板在建议
+    /// `git status`、命令行却空着，图就假了。`send` 自己会喂缓冲区并重算候选。
+    /// 宠物面板与行内灰字都是输入驱动的，而 UI 自动化在这台机器上被 TCC 挡死
+    /// （`osascript … System Events` → -10004）。入口在 `MainSplitView` 的 `demoPetLine`。
+    func injectDemoInput(_ text: String) {
+        guard !text.isEmpty else { return }
+        send(ArraySlice(Array(text.utf8)))
+        focusTerminal()
+    }
+    #endif
 
     /// 把一条命令**键入**终端但不回车（对话里代码块的「插入」动作）。
     ///
@@ -1344,12 +1387,13 @@ struct TerminalPanel: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .animation(.easeOut(duration: 0.15), value: session.isViewingHistory)
-        // 胖鱼打字时主动展开的候选面板：鱼用 anchorPreference 上报自己的
-        // 位置和可见性，面板在最外层渲染，盖在终端 NSView 之上、钉在鱼身下沿。
+        // 胖鱼打字时主动展开的候选面板：鱼只上报锚点，可见性由
+        // `session.petAutoPanelVisible` 广播（原因见该属性的注释）。
+        // 面板在最外层渲染，盖在终端 NSView 之上、钉在鱼身下沿。
         // 窗口内 SwiftUI 视图，不改变 firstResponder —— 键盘输入全程留在终端。
-        .overlayPreferenceValue(PetPanelPreferenceKey.self) { pref in
+        .overlayPreferenceValue(PetPanelAnchorKey.self) { anchor in
             GeometryReader { proxy in
-                if pref.visible, let anchor = pref.anchor {
+                if session.petAutoPanelVisible, let anchor {
                     let fishRect = proxy[anchor]
                     let panelWidth: CGFloat = 320
                     // 右缘与鱼对齐，空间不够（窗口窄）时向左收，始终留 8pt 边。
@@ -1367,7 +1411,7 @@ struct TerminalPanel: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .animation(.easeOut(duration: 0.12), value: pref.visible)
+            .animation(.easeOut(duration: 0.12), value: session.petAutoPanelVisible)
         }
     }
 
