@@ -4,6 +4,21 @@
 日志格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 日期一律 `YYYY-MM-DD`。
 
+## [0.2.1] - 2026-10-27
+
+修一个「功能等于不存在」的 bug：0.2.0 里那只胖鱼的候选面板，一次都没画出来过。
+
+### 修复
+
+- **终端补全精灵的候选面板从不出现**：鱼把「锚点 + 该不该弹」一起塞进了
+  `anchorPreference` 的闭包，而 SwiftUI 的这个闭包**只在布局（bounds）变化时重算**。
+  鱼的位置不动、变的只是输入和候选列表，于是上报给最外层浮层的 `visible` 永远停在
+  首帧的 `false`，`if pref.visible` 从不成立。行内灰字不受影响（它走 NSView 子视图），
+  所以只看灰字会以为功能是好的。
+  修法：可见性改由 `TerminalSession.petAutoPanelVisible`（`@Published`）广播，输入 /
+  候选 / 气泡开关任一变化都重算；`anchorPreference` 只负责传锚点。
+- README 补三节实拍配图：审批卡、代码块三动作、补全精灵。
+
 ## [0.2.0] - 2026-10-26
 
 第二个技术预览版，主题是**终端里的补全精灵**：命令行还没敲完，候选已经在旁边了。
@@ -84,5 +99,6 @@
 
 - MIT 许可证 + 第三方声明（`THIRD_PARTY_NOTICES.md`），清掉个人开发信息。
 
+[0.2.1]: https://github.com/Gcsimple/cogniterm/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Gcsimple/cogniterm/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Gcsimple/cogniterm/releases/tag/v0.1.0
