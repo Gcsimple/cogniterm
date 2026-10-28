@@ -21,6 +21,7 @@
 		BF100000000000000000A022 /* ModelEndpointSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A022 /* ModelEndpointSettingsView.swift */; };
 		BF100000000000000000A023 /* SessionArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A023 /* SessionArchive.swift */; };
 		BF100000000000000000A024 /* TerminalWorkspaceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A024 /* TerminalWorkspaceStore.swift */; };
+		BF100000000000000000A02D /* SSHSecretStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02D /* SSHSecretStore.swift */; };
 		BF100000000000000000A00C /* sidecar.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00C /* sidecar.sb */; };
 		BF100000000000000000A016 /* sidecar-writable.sb in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A016 /* sidecar-writable.sb */; };
 		BF100000000000000000A017 /* TerminalMCPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A017 /* TerminalMCPServer.swift */; };
@@ -35,6 +36,9 @@
 		BF100000000000000000A029 /* PetInputBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A029 /* PetInputBuffer.swift */; };
 		BF100000000000000000A02A /* PetSuggestion.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02A /* PetSuggestion.swift */; };
 		BF100000000000000000A02B /* PetOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02B /* PetOverlayView.swift */; };
+		BF100000000000000000A02C /* RemoteDirectorySheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02C /* RemoteDirectorySheet.swift */; };
+		BF100000000000000000A02E /* SSHPasswordSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02E /* SSHPasswordSheet.swift */; };
+		BF100000000000000000A02F /* TerminalPanelSizing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A02F /* TerminalPanelSizing.swift */; };
 		BF100000000000000000A00F /* no-telemetry.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A00F /* no-telemetry.yml */; };
 		BF100000000000000000A014 /* cogniterm-core.patch.yml in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A015 /* cogniterm-core.patch.yml */; };
 		BF100000000000000000A010 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000A010 /* Assets.xcassets */; };
@@ -55,6 +59,8 @@
 		BF100000000000000000C00D /* WorkspacePathMigrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00D /* WorkspacePathMigrationTests.swift */; };
 		BF100000000000000000C00E /* MarkdownParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00E /* MarkdownParserTests.swift */; };
 		BF100000000000000000C00F /* PetSuggestionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C00F /* PetSuggestionTests.swift */; };
+		BF100000000000000000C010 /* RemoteExecutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C010 /* RemoteExecutionTests.swift */; };
+		BF100000000000000000C011 /* SSHPasswordStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C011 /* SSHPasswordStoreTests.swift */; };
 		BF100000000000000000C003 /* CoreProfilePatchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C003 /* CoreProfilePatchTests.swift */; };
 		BF100000000000000000C004 /* SidecarEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C004 /* SidecarEnvironmentTests.swift */; };
 		BF100000000000000000C005 /* SessionConfigOptionFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */; };
@@ -76,6 +82,7 @@
 		FR100000000000000000A022 /* ModelEndpointSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModelEndpointSettingsView.swift; sourceTree = "<group>"; };
 		FR100000000000000000A023 /* SessionArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionArchive.swift; sourceTree = "<group>"; };
 		FR100000000000000000A024 /* TerminalWorkspaceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalWorkspaceStore.swift; sourceTree = "<group>"; };
+		FR100000000000000000A02D /* SSHSecretStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHSecretStore.swift; sourceTree = "<group>"; };
 		FR100000000000000000A00C /* sidecar.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar.sb; sourceTree = "<group>"; };
 		FR100000000000000000A016 /* sidecar-writable.sb */ = {isa = PBXFileReference; lastKnownFileType = text; path = sidecar-writable.sb; sourceTree = "<group>"; };
 		FR100000000000000000A017 /* TerminalMCPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalMCPServer.swift; sourceTree = "<group>"; };
@@ -87,6 +94,9 @@
 		FR100000000000000000A029 /* PetInputBuffer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetInputBuffer.swift; sourceTree = "<group>"; };
 		FR100000000000000000A02A /* PetSuggestion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetSuggestion.swift; sourceTree = "<group>"; };
 		FR100000000000000000A02B /* PetOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetOverlayView.swift; sourceTree = "<group>"; };
+		FR100000000000000000A02C /* RemoteDirectorySheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteDirectorySheet.swift; sourceTree = "<group>"; };
+		FR100000000000000000A02E /* SSHPasswordSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPasswordSheet.swift; sourceTree = "<group>"; };
+		FR100000000000000000A02F /* TerminalPanelSizing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPanelSizing.swift; sourceTree = "<group>"; };
 		FR100000000000000000A019 /* NewSSHSessionSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewSSHSessionSheet.swift; sourceTree = "<group>"; };
 		FR100000000000000000A021 /* TerminalTabBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalTabBar.swift; sourceTree = "<group>"; };
 		FR100000000000000000A020 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -106,6 +116,8 @@
 		FR100000000000000000C00D /* WorkspacePathMigrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePathMigrationTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C00E /* MarkdownParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownParserTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C00F /* PetSuggestionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PetSuggestionTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C010 /* RemoteExecutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteExecutionTests.swift; sourceTree = "<group>"; };
+		FR100000000000000000C011 /* SSHPasswordStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPasswordStoreTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C003 /* CoreProfilePatchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CoreProfilePatchTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C004 /* SidecarEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidecarEnvironmentTests.swift; sourceTree = "<group>"; };
 		FR100000000000000000C005 /* SessionConfigOptionFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionConfigOptionFlowTests.swift; sourceTree = "<group>"; };
@@ -176,6 +188,7 @@
 				FR100000000000000000A028 /* PetContextStore.swift */,
 				FR100000000000000000A023 /* SessionArchive.swift */,
 				FR100000000000000000A024 /* TerminalWorkspaceStore.swift */,
+				FR100000000000000000A02D /* SSHSecretStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -208,6 +221,9 @@
 				FR100000000000000000A020 /* SidebarView.swift */,
 				FR100000000000000000A027 /* MarkdownMessageView.swift */,
 				FR100000000000000000A02B /* PetOverlayView.swift */,
+				FR100000000000000000A02C /* RemoteDirectorySheet.swift */,
+				FR100000000000000000A02E /* SSHPasswordSheet.swift */,
+				FR100000000000000000A02F /* TerminalPanelSizing.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -272,6 +288,8 @@
 				FR100000000000000000C006 /* TerminalIntegrationTests.swift */,
 				FR100000000000000000C00E /* MarkdownParserTests.swift */,
 				FR100000000000000000C00F /* PetSuggestionTests.swift */,
+				FR100000000000000000C010 /* RemoteExecutionTests.swift */,
+				FR100000000000000000C011 /* SSHPasswordStoreTests.swift */,
 			);
 			path = Tests/CogniTermTests;
 			sourceTree = "<group>";
@@ -412,6 +430,9 @@
 				BF100000000000000000A029 /* PetInputBuffer.swift in Sources */,
 				BF100000000000000000A02A /* PetSuggestion.swift in Sources */,
 				BF100000000000000000A02B /* PetOverlayView.swift in Sources */,
+				BF100000000000000000A02C /* RemoteDirectorySheet.swift in Sources */,
+				BF100000000000000000A02E /* SSHPasswordSheet.swift in Sources */,
+				BF100000000000000000A02F /* TerminalPanelSizing.swift in Sources */,
 				BF100000000000000000A019 /* NewSSHSessionSheet.swift in Sources */,
 				BF100000000000000000A021 /* TerminalTabBar.swift in Sources */,
 				BF100000000000000000A020 /* SidebarView.swift in Sources */,
@@ -426,6 +447,7 @@
 				BF100000000000000000A022 /* ModelEndpointSettingsView.swift in Sources */,
 				BF100000000000000000A023 /* SessionArchive.swift in Sources */,
 				BF100000000000000000A024 /* TerminalWorkspaceStore.swift in Sources */,
+				BF100000000000000000A02D /* SSHSecretStore.swift in Sources */,
 				BF100000000000000000A012 /* OnboardingView.swift in Sources */,
 				BF100000000000000000A013 /* SessionReplayView.swift in Sources */,
 			);
@@ -447,6 +469,8 @@
 				BF100000000000000000C006 /* TerminalIntegrationTests.swift in Sources */,
 				BF100000000000000000C00E /* MarkdownParserTests.swift in Sources */,
 				BF100000000000000000C00F /* PetSuggestionTests.swift in Sources */,
+				BF100000000000000000C010 /* RemoteExecutionTests.swift in Sources */,
+				BF100000000000000000C011 /* SSHPasswordStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -523,7 +547,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGNING_ALLOWED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -533,7 +557,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cogniterm.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -551,7 +575,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CODE_SIGNING_ALLOWED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -560,7 +584,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.1;
+				MARKETING_VERSION = 0.2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cogniterm.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -575,7 +599,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -599,7 +623,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGNING_ALLOWED = NO;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				LD_RUNPATH_SEARCH_PATHS = (

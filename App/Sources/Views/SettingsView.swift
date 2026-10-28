@@ -21,85 +21,97 @@ struct SettingsView: View {
     private let keychain = KeychainService()
 
     /// 模型展示名与说明。key 缺失时回落到 rawValue，不让 UI 空着。
-    /// 取值与 `AgentModel` 的 wire id 一一对应，说明文案里的模型名用账号侧
-    /// 的真实展示名（实测 `/v1/models`）。
+    ///
+    /// 说明只讲**用户拿它做什么决策**（快 / 强 / 贵），不写 dsh 目录 id ——
+    /// 那个 id 是内部路由名，界面上的选择器已经用人话区分了档位，
+    /// 把它摆出来只会让人以为需要理解它。
     private static let modelLabel: [AgentModel: String] = [
         .flash: "Flash（快，日常默认）",
         .pro: "Pro（强推理，成本更高）",
     ]
 
     private static let modelHint: [AgentModel: String] = [
-        .flash: "DeepSeek-V41-Flash（dsh 目录 id: deepseek-flash）。日常编码任务的默认档。",
-        .pro: "DeepSeek-V4-Pro（dsh 目录 id: deepseek-v4-pro）。更强的 agentic 编码与困难推理，适合复杂或质量敏感的任务。",
+        .flash: "DeepSeek-V41-Flash：日常编码的默认档，响应快。",
+        .pro: "DeepSeek-V4-Pro：更强的推理与长链路编码能力，适合复杂或质量敏感的任务。",
     ]
 
     var body: some View {
-        Form {
-            Section("DeepSeek API Key") {
-                SecureField("DEEPSEEK_API_KEY", text: $apiKey)
-                HStack {
-                    Button("存入 Keychain") { saveKey() }
-                    Button("从 Keychain 删除") { clearKey() }
-                    Spacer()
-                    if let statusMessage {
-                        Text(statusMessage).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Text("Key 只在拉起 sidecar 时注入子进程环境，不写入 SwiftData，也不参与遥测。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("模型") {
-                Picker("默认模型", selection: $defaultSelection) {
-                    ForEach(AgentModel.allCases, id: \.self) { model in
-                        Text(Self.modelLabel[model] ?? model.rawValue)
-                            .tag(DefaultModelSelection(providerID: DefaultModelSelection.deepSeekProvider,
-                                                modelID: model.rawValue).selectionID)
-                    }
-                    // 自定义端点的模型与内置档并列：分组名用端点显示名，
-                    // 因为路由名（local-qwen）对用户没有意义。
-                    ForEach(endpoints) { endpoint in
-                        let route = ModelEndpoint.normalizedRouteID(endpoint.id)
-                        ForEach(endpoint.models.filter { !$0.id.isEmpty }, id: \.id) { model in
-                            Text("\(endpoint.displayName.isEmpty ? route : endpoint.displayName) · \(model.name ?? model.id)")
-                                .tag(DefaultModelSelection(providerID: route, modelID: model.id).selectionID)
+        // 保存按钮**钉在底部**，不跟着 Form 滚。Settings 场景只有 480×460，
+        // 表单内容（API Key + 模型 + 端点 + 策略）一定超出，按钮留在最后一行的
+        // 话用户要看一眼才知道该滚到底——「改完不知道在哪保存」比多一个 bar 糟。
+        VStack(spacing: 0) {
+            Form {
+                Section("DeepSeek API Key") {
+                    SecureField("DEEPSEEK_API_KEY", text: $apiKey)
+                    HStack {
+                        Button("存入 Keychain") { saveKey() }
+                        Button("从 Keychain 删除") { clearKey() }
+                        Spacer()
+                        if let statusMessage {
+                            Text(statusMessage).font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    Text("只在本机使用：不写配置文件、不上报遥测。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                Text(currentModelHint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text("这是**新会话的启动缺省值**：切换后需重连 sidecar 才生效（DSH_COGNITERM_PROVIDER / DSH_COGNITERM_MODEL 由启动环境注入，落点是 dsh profile 的 acp 行 + agent-default-model）。"
-                     + "已经开着的会话请用左侧「会话配置」里的模型选择器实时切换。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
 
-            // 自定义端点：挂载之后 dsh 的模型选项会按 provider 分组列出它们，
-            // 因此这里不需要再实现一份模型选择器。
-            ModelEndpointsSection(sidecar: sidecar) {
-                endpoints = ModelEndpointStore.load().usableEndpoints
-            }
-
-            Section("策略") {
-                Picker("审批模式", selection: $policyMode) {
-                    Text("严格（每次询问）").tag(PolicyMode.strict)
-                    Text("规则（命中允许规则自动放行）").tag(PolicyMode.rules)
-                    Text("闭关（一律拒绝）").tag(PolicyMode.closed)
+                Section("模型") {
+                    Picker("默认模型", selection: $defaultSelection) {
+                        ForEach(AgentModel.allCases, id: \.self) { model in
+                            Text(Self.modelLabel[model] ?? model.rawValue)
+                                .tag(DefaultModelSelection(providerID: DefaultModelSelection.deepSeekProvider,
+                                                    modelID: model.rawValue).selectionID)
+                        }
+                        // 自定义端点的模型与内置档并列：分组名用端点显示名，
+                        // 因为路由名（local-qwen）对用户没有意义。
+                        ForEach(endpoints) { endpoint in
+                            let route = ModelEndpoint.normalizedRouteID(endpoint.id)
+                            ForEach(endpoint.models.filter { !$0.id.isEmpty }, id: \.id) { model in
+                                Text("\(endpoint.displayName.isEmpty ? route : endpoint.displayName) · \(model.name ?? model.id)")
+                                    .tag(DefaultModelSelection(providerID: route, modelID: model.id).selectionID)
+                            }
+                        }
+                    }
+                    Text(currentModelHint)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    // ⚠️ 必须是一个字面量：写成 `"a" + "b"` 时类型是 String，走的是
+                    // `Text(_: StringProtocol)` 重载，markdown 不解析——那句里原来的
+                    // `**新会话的启动缺省值**` 就在界面上原样显示了星号。
+                    Text("影响新会话的默认模型，重连后生效；已经开着的会话用左侧「会话配置」里的选择器实时切换。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
-                Picker("Sidecar 沙箱", selection: $sandboxMode) {
-                    Text("只读").tag(SandboxMode.readOnly)
-                    Text("工作区可写").tag(SandboxMode.workspaceWrite)
-                    Text("关闭（danger-full-access）").tag(SandboxMode.off)
-                }
-                Toggle("启用遥测（默认关闭）", isOn: $telemetryEnabled)
-                Text("审批模式立即生效；沙箱与遥测在下次连接 sidecar 时注入（DSH_PERMISSION_MODE / 补丁开关）。")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
 
-            HStack {
+                // 自定义端点：挂载之后 dsh 的模型选项会按 provider 分组列出它们，
+                // 因此这里不需要再实现一份模型选择器。
+                ModelEndpointsSection(sidecar: sidecar) {
+                    endpoints = ModelEndpointStore.load().usableEndpoints
+                }
+
+                Section("策略") {
+                    Picker("审批模式", selection: $policyMode) {
+                        Text("严格（每次询问）").tag(PolicyMode.strict)
+                        Text("规则（命中允许规则自动放行）").tag(PolicyMode.rules)
+                        Text("闭关（一律拒绝）").tag(PolicyMode.closed)
+                    }
+                    Picker("Sidecar 沙箱", selection: $sandboxMode) {
+                        Text("只读").tag(SandboxMode.readOnly)
+                        Text("工作区可写").tag(SandboxMode.workspaceWrite)
+                        Text("关闭（不隔离，慎用）").tag(SandboxMode.off)
+                    }
+                    Toggle("启用遥测（默认关闭）", isOn: $telemetryEnabled)
+                    Text("审批模式立即生效；沙箱与遥测需要重连才生效。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+
+            Divider()
+
+            HStack(spacing: 8) {
                 Spacer()
                 Button("保存设置") { saveSettings() }
                     .buttonStyle(.borderedProminent)
@@ -109,9 +121,9 @@ struct SettingsView: View {
                 }
                 .disabled(sidecar.status == .starting)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
         }
-        .formStyle(.grouped)
-        .padding()
         .onAppear(perform: load)
     }
 
@@ -128,7 +140,7 @@ struct SettingsView: View {
         }) {
             return "\(endpoint.displayName)（\(endpoint.normalizedBaseURL)，模型 id: \(selection.modelID)）"
         }
-        return "该模型所属的端点已不在清单里，重连会失败——请重新选择或恢复端点。"
+        return "所属端点已不在清单里，重连会失败——请重新选择。"
     }
 
     private func load() {

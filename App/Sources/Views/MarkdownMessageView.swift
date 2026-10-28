@@ -226,8 +226,15 @@ private struct MarkdownCodeBlockView: View {
 
     private var assessment: RiskAssessment? {
         guard let command = runnable else { return nil }
+        // 与终端命令审批卡走同一套判定：远程会话里不能用本地 workspaceRoot
+        // 去比远端绝对路径（`/opt/app` 会被一律判成"工作区之外"，风险等级
+        // 直接虚高，用户很快就学会无视这个标签）。
+        let execution = SessionManager.shared.activeSession.commandExecutionTarget
         return RiskEvaluator.assess(
-            CommandInvocation(tool: "terminal", command: command, workspaceRoot: workspaceRoot)
+            CommandInvocation(tool: "terminal",
+                              command: command,
+                              cwd: execution.directory,
+                              workspaceRoot: execution.isRemote ? nil : workspaceRoot)
         )
     }
 

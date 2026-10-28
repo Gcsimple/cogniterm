@@ -347,15 +347,85 @@ final class TerminalIntegrationTests: XCTestCase {
         XCTAssertEqual(stripANSIEscapeSequences("plain text"), "plain text")
     }
 
-    // MARK: - 终端高度 clamp（拖拽手柄的纯函数部分）
+    // MARK: - 终端面板高度（拖拽手柄 + 自适应）
 
-    func testTerminalHeightClampBounds() {
-        XCTAssertEqual(MainSplitView.clampedTerminalHeight(0), 120, "下限保证工具栏+一行可见")
-        XCTAssertEqual(MainSplitView.clampedTerminalHeight(50), 120)
-        XCTAssertEqual(MainSplitView.clampedTerminalHeight(220), 220, "区间内原样")
-        XCTAssertEqual(MainSplitView.clampedTerminalHeight(479), 479)
-        XCTAssertEqual(MainSplitView.clampedTerminalHeight(1000), 480, "上限给对话区留空间")
-        XCTAssertEqual(MainSplitView.clampedTerminalHeight(-5), 120)
+    /// 行高必须和 SwiftTerm 同口径：`ceil(ascender - descender + leading)`。
+    /// 差 1pt 无所谓，但「18 行」在 300pt 上会差出整整一行——所以这里钉死。
+    func testCellHeightMatchesSwiftTermCellMetrics() {
+        let twelve = TerminalPanelSizing.cellHeight(fontSize: 12)
+        XCTAssertEqual(twelve, 15, "12pt SF Mono：ceil(11.60 + 2.53) = 15")
+        XCTAssertEqual(TerminalPanelSizing.cellHeight(fontSize: 9), 11)
+        XCTAssertGreaterThan(TerminalPanelSizing.cellHeight(fontSize: 24), twelve)
+    }
+
+    /// chrome = 标签栏 26 + 工具条 28 + 两条分隔线 2。改其中一个数必须改这里。
+    func testChromeHeightAddsUpToTheRealSubviews() {
+        XCTAssertEqual(TerminalPanelSizing.chromeHeight, 56)
+        // 18 行 + chrome：12pt 字号下是 56 + 270 = 326。
+        XCTAssertEqual(TerminalPanelSizing.heightForMinimumRows(fontSize: 12), 326)
+    }
+
+    /// 用户抱怨「太小」的那个窗口实测是 1280×652，detail 区约 624pt 高。
+    /// 旧固定值 220pt → (220-56)/15 ≈ 11 行。现在应该给到 18 行下限。
+    func testIdealHeightHonoursMinimumRowsOnTypicalWindow() {
+        let height = TerminalPanelSizing.idealHeight(available: 624, fontSize: 12)
+        XCTAssertEqual(height, 326, "0.42×624=262 比行数下限矮，取下限")
+        XCTAssertEqual(TerminalPanelSizing.visibleRows(height: height, fontSize: 12), 18)
+        // 让出去的高度之后，对话区还剩多少？必须仍在它自己的下限之上。
+        let conversationArea = 624 - height - TerminalPanelSizing.handleHeight
+        XCTAssertGreaterThanOrEqual(conversationArea, TerminalPanelSizing.conversationFloor,
+                                    "终端高度不得侵吞对话区下限")
+    }
+
+    /// 窗口够高时比例接管：900pt 的 detail 区给 0.42 ≈ 22 行。
+    func testIdealHeightGrowsWithWindow() {
+        let height = TerminalPanelSizing.idealHeight(available: 900, fontSize: 12)
+        XCTAssertEqual(height, 378, accuracy: 0.01)
+        let rows = TerminalPanelSizing.visibleRows(height: height, fontSize: 12)
+        XCTAssertGreaterThan(rows, 20)
+        // 单调：窗口更高只会更多，不会更少。
+        XCTAssertGreaterThan(height,
+                             TerminalPanelSizing.idealHeight(available: 700, fontSize: 12))
+    }
+
+    /// 窗口矮到装不下 18 行 + 对话区下限时，**让对话区**：封顶优先于行数下限。
+    func testConversationFloorWinsOnShortWindow() {
+        let short: CGFloat = 560
+        let height = TerminalPanelSizing.idealHeight(available: short, fontSize: 12)
+        let budget = Double(short) - Double(TerminalPanelSizing.conversationFloor)
+                        - Double(TerminalPanelSizing.handleHeight)
+        XCTAssertEqual(height, budget, accuracy: 0.01, "矮窗口里封顶说话")
+        XCTAssertLessThan(TerminalPanelSizing.visibleRows(height: height, fontSize: 12), 18)
+    }
+
+    /// 放大字号 → 行数下限变高 → 自适应面板跟着长。
+    /// 不做这件事的话，字号调到 20pt 反而看得更少（这就是旧固定值的毛病）。
+    func testIdealHeightFollowsFontSize() {
+        let small = TerminalPanelSizing.idealHeight(available: 900, fontSize: 12)
+        let large = TerminalPanelSizing.idealHeight(available: 900, fontSize: 20)
+        XCTAssertGreaterThan(large, small, "字大了面板必须跟着长，否则行数反而掉")
+        // 1600pt 的大屏才装得下 20pt 字号的 18 行，这里只断言它没被预算压回原值。
+        XCTAssertLessThanOrEqual(large, 900 - Double(TerminalPanelSizing.conversationFloor))
+    }
+
+    /// 拖拽存值不按当前窗口夹：窗口拖小一次不该让终端永久变矮。
+    func testCustomHeightDoesNotRatchetDownWithWindow() {
+        let dragged = TerminalPanelSizing.clampedCustomHeight(700)
+        XCTAssertEqual(dragged, 700, "存的是意图，不是当前窗口的显示值")
+        // 同一份意图在小窗口里被压到预算，回到大窗口又能张开。
+        let smallWindow = TerminalPanelSizing.displayHeight(desired: dragged, available: 624, fontSize: 12)
+        let largeWindow = TerminalPanelSizing.displayHeight(desired: dragged, available: 1100, fontSize: 12)
+        XCTAssertEqual(smallWindow, 624 - Double(TerminalPanelSizing.conversationFloor) - 4, accuracy: 0.01)
+        XCTAssertEqual(largeWindow, 700, "回到大窗口恢复用户设定的高度")
+    }
+
+    /// 拖到下界的极端情况：不许低于「chrome + 一行」，否则面板只剩一条缝。
+    func testCustomHeightFloorKeepsOneRowVisible() {
+        let bottom = TerminalPanelSizing.clampedCustomHeight(-500)
+        XCTAssertEqual(bottom, TerminalPanelSizing.floorHeight, accuracy: 0.01)
+        XCTAssertGreaterThan(TerminalPanelSizing.visibleRows(height: bottom, fontSize: 12), 0)
+        XCTAssertEqual(TerminalPanelSizing.clampedCustomHeight(99_999),
+                       TerminalPanelSizing.absoluteMax, "上限防手滑")
     }
 
     // MARK: - 「在终端运行」（审批卡出口）

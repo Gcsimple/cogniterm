@@ -126,20 +126,25 @@ final class ConversationModel: ObservableObject {
     final class PendingTerminalCommand: Identifiable {
         let id = UUID()
         let command: String
-        /// 命令将要注入的会话（「本地」/「user@host」）。
-        let target: String?
-        let workspaceRoot: String?
+        /// 命令将要注入的**执行目标**：哪台机器、哪个目录。
+        ///
+        /// 旧实现只有 `target: String?`（一个展示名）+ `workspaceRoot`（本地路径）。
+        /// SSH 会话下这两样凑不出一条完整信息：用户看不出命令落在远端哪个目录，
+        /// 而 `workspaceRoot` 在远程场景里是个无关的本地路径。
+        let execution: CommandExecutionTarget
+        /// agent 的**本地**文件域（远程会话下与执行目录不是一回事）。
+        let localWorkspaceRoot: String?
         /// 服务端（TerminalMCPServer）传入的应答闭包；它在 withCheckedContinuation
         /// 里 resume，所以这里只存闭包，不持有 continuation。
         fileprivate let completion: (TerminalCommandDecision) -> Void
 
         init(command: String,
-             target: String?,
-             workspaceRoot: String?,
+             execution: CommandExecutionTarget,
+             localWorkspaceRoot: String?,
              completion: @escaping (TerminalCommandDecision) -> Void) {
             self.command = command
-            self.target = target
-            self.workspaceRoot = workspaceRoot
+            self.execution = execution
+            self.localWorkspaceRoot = localWorkspaceRoot
             self.completion = completion
         }
     }
@@ -149,7 +154,7 @@ final class ConversationModel: ObservableObject {
     /// TerminalCommandGate 实现：closed 全拒；rules 命中规则自动放行；
     /// 其余（strict 或 rules 未命中）弹审批卡等人。
     func requestTerminalCommand(_ command: String,
-                                target: String?,
+                                execution: CommandExecutionTarget,
                                 completion: @escaping (TerminalCommandDecision) -> Void) {
         switch policyMode {
         case .closed:
@@ -157,11 +162,17 @@ final class ConversationModel: ObservableObject {
             completion(.reject)
             return
         case .rules:
+            // 远程会话**不做**越界判定：`workspaceRoot` 是本地路径，拿它去比
+            // 远端的绝对路径只会把所有远程命令都标成"访问工作区之外"（纯噪音，
+            // 而且会训练用户无视这个标签）。真正的远端边界要另开一条 ssh 才能
+            // 验证，成本与收益不成比例；此时传 nil 让规则只按命令模式匹配，
+            // 方向是保守的（该弹卡照样弹卡）。
+            let localRoot = execution.isRemote ? nil : workspaceRoot
             let invocation = CommandInvocation(
                 tool: TerminalMCP.toolName,
                 command: command,
-                cwd: workspaceRoot,
-                workspaceRoot: workspaceRoot
+                cwd: execution.directory ?? localRoot,
+                workspaceRoot: localRoot
             )
             if let rule = ruleSet.automaticAllow(for: invocation) {
                 appendSystem("规则命中自动允许：\(rule.pattern)")
@@ -171,11 +182,27 @@ final class ConversationModel: ObservableObject {
         case .strict:
             break
         }
-        appendSystem("agent 请求在终端执行命令，等待审批…")
+        appendSystem(execution.isRemote
+                     ? "agent 请求在远程终端执行命令（\(execution.summary)），等待审批…"
+                     : "agent 请求在终端执行命令，等待审批…")
         pendingTerminalCommand = PendingTerminalCommand(
             command: command,
-            target: target,
-            workspaceRoot: workspaceRoot,
+            execution: execution,
+            localWorkspaceRoot: workspaceRoot,
+            completion: completion
+        )
+    }
+
+    /// 旧签名（只有展示名）：测试与旧调用点用。远程信息缺失时按本地处理——
+    /// 宁可少一个标注，也不能凭一个字符串猜"这是不是远程"。
+    func requestTerminalCommand(_ command: String,
+                                target: String?,
+                                completion: @escaping (TerminalCommandDecision) -> Void) {
+        requestTerminalCommand(
+            command,
+            execution: CommandExecutionTarget(label: target ?? CommandExecutionTarget.localDefault.label,
+                                              directory: workspaceRoot,
+                                              isRemote: false),
             completion: completion
         )
     }

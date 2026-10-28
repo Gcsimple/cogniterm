@@ -92,9 +92,16 @@ final class SessionManager: ObservableObject {
     ///   - label: 展示名（书签名，或 user@host）。
     ///   - root: 本地 ssh 进程的起始 cwd。用家目录：ssh 不关心 cwd，
     ///     而工作区路径对它毫无意义。
+    ///   - remoteDirectory: 远程执行目录（agent 的命令在这里跑）。
+    ///     只是**声明**，不会在连接后自动注入 `cd`——连接阶段可能还停在密码
+    ///     提示上，那时往 PTY 里打字会把路径当密码交上去。
     @discardableResult
-    func openSSHSession(target: SSHTarget, label: String, root: URL) -> TerminalSession {
-        let session = addSSHSession(target: target, label: label, root: root, activate: true)
+    func openSSHSession(target: SSHTarget,
+                        label: String,
+                        root: URL,
+                        remoteDirectory: String? = nil) -> TerminalSession {
+        let session = addSSHSession(target: target, label: label, root: root,
+                                    remoteDirectory: remoteDirectory, activate: true)
         persistWorkspace()
         return session
     }
@@ -104,8 +111,19 @@ final class SessionManager: ObservableObject {
     private func addSSHSession(target: SSHTarget,
                                label: String,
                                root: URL,
+                               remoteDirectory: String? = nil,
                                activate: Bool) -> TerminalSession {
-        let session = TerminalSession(kind: .ssh, label: label, sshTarget: target)
+        let session = TerminalSession(kind: .ssh,
+                                      label: label,
+                                      sshTarget: target,
+                                      remoteDirectory: remoteDirectory,
+                                      // 只在内存里留一份：密码的来源是 Keychain，
+                                      // 用户在表单里勾了「保存密码」才会有值。
+                                      password: SSHPasswordStore.password(for: target))
+        // 目录改了要重新落盘：终端现场包含它，重启后必须回到同一个位置。
+        session.onRemoteDirectoryChanged = { [weak self] in
+            self?.persistWorkspace()
+        }
         sessions.append(session)
         if activate {
             activeSessionID = session.id
@@ -137,7 +155,11 @@ final class SessionManager: ObservableObject {
         for tab in snapshot.tabs {
             // 被手改坏的条目直接跳过：宁可少恢复一个标签，也不把坏参数喂给 ssh。
             guard let target = tab.target else { continue }
-            addSSHSession(target: target, label: tab.label, root: root, activate: false)
+            addSSHSession(target: target,
+                          label: tab.label,
+                          root: root,
+                          remoteDirectory: tab.remoteDirectory,
+                          activate: false)
         }
         persistWorkspace()
     }
@@ -147,7 +169,9 @@ final class SessionManager: ObservableObject {
         guard let workspaceFileURL else { return }
         let tabs = sessions.compactMap { session -> StoredTerminalTab? in
             guard session.kind == .ssh, let target = session.sshTarget else { return nil }
-            return StoredTerminalTab(label: session.label, target: target)
+            return StoredTerminalTab(label: session.label,
+                                     target: target,
+                                     remoteDirectory: session.remoteWorkingDirectory)
         }
         TerminalWorkspaceStore.save(.init(tabs: tabs), to: workspaceFileURL)
     }
@@ -224,6 +248,7 @@ extension SessionManager: TerminalCommandExecutor {
     var isTerminalReady: Bool { activeSession.isTerminalReady }
     var isCapturingCommand: Bool { activeSession.isCapturingCommand }
     var commandTargetDescription: String { activeSession.commandTargetDescription }
+    var commandExecutionTarget: CommandExecutionTarget { activeSession.commandExecutionTarget }
 
     func runCommandCaptured(_ command: String, onCapture: @escaping @MainActor (String) -> Void) {
         activeSession.runCommandCaptured(command, onCapture: onCapture)

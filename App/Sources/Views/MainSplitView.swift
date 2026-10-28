@@ -19,6 +19,8 @@ struct MainSplitView: View {
     @ObservedObject private var terminal = TerminalSession.shared
     /// 新建 SSH 会话表单。
     @State private var showNewSSHSession = false
+    /// DEBUG 夹具：设置窗口没起来时的兜底弹层（只由 `demoSettingsOnLaunch` 打开）。
+    @State private var demoSettingsSheet = false
     /// 菜单/快捷键下发的一次性指令（Scene 级 `Commands` 够不到本视图的 `@State`）。
     @ObservedObject private var appCommands = AppCommandCenter.shared
     /// 终端 MCP server（agent 的 run_in_terminal 执行平面）。观察它是为了让
@@ -32,8 +34,14 @@ struct MainSplitView: View {
     @AppStorage("workspacePath") private var workspacePath: String = ""
     @State private var showDiagnostics = false
     @State private var replay: ReplayItem?
-    /// 终端面板高度（可拖拽分隔条调整）。@AppStorage 落盘，重启后保持。
-    @AppStorage("terminalPanelHeight") private var terminalHeight: Double = 220
+    /// 终端面板高度（**用户拖过分隔条之后**的值）。`0` = 自适应（默认）。
+    ///
+    /// 旧版是个写死的 220pt——那 220 里 56pt 是标签栏 + 工具条，只剩 164pt 给终端，
+    /// 默认字号 12pt 一格 15pt，也就是**不到 11 行**，敲一条 `git status` 就得开滚。
+    /// 现在默认走 `TerminalPanelSizing.idealHeight`：行数下限 + 窗口比例取大者，
+    /// 跟着窗口高度和字号一起长。用户拖过一次就记绝对值（语义变成"我就要这么高"），
+    /// 拖柄右键能恢复自适应。
+    @AppStorage("terminalPanelHeight") private var customTerminalHeight: Double = 0
     /// 终端面板折叠态（⌘J / 双击分隔条 / 收起条上的展开按钮）。
     /// 折叠不是删除：高度记忆在 terminalHeight 里，展开即恢复。
     /// 「只想专心聊天」时把默认 220pt 整个还给对话区——旧实现最小 120pt，
@@ -130,6 +138,42 @@ struct MainSplitView: View {
                 }
             }
 
+            // 远程执行目录抓手：`defaults write com.cogniterm.app demoSSHPort -int 65021`
+            // + `defaults write com.cogniterm.app demoSSHRemoteDirectory -string "/opt/app"`
+            // 直接开一个指向本机高位端口的 SSH 会话（连接必然被拒），用来核对
+            // 「远程会话的工具条长什么样、远程目录入口在不在」——UI 自动化被 TCC
+            // 挡死（osascript -10004），这是唯一能自动截到这一屏的办法。
+            if let demoPort = UserDefaults.standard.object(forKey: "demoSSHPort") as? Int {
+                let remote = UserDefaults.standard.string(forKey: "demoSSHRemoteDirectory")
+                sessions.openSSHSession(
+                    target: SSHTarget(host: "127.0.0.1", port: demoPort, username: "demo"),
+                    label: "demo@127.0.0.1",
+                    root: FileManager.default.homeDirectoryForCurrentUser,
+                    remoteDirectory: remote
+                )
+            }
+
+            // 设置窗口抓手：`defaults write com.cogniterm.app demoSettingsOnLaunch -bool YES`
+            // Settings 是独立 Scene，除了 ⌘, 没有程序化入口，而 UI 自动化在本机被
+            // TCC 挡死（osascript -10004）。改文案后要靠这一屏核对行高与换行。
+            //
+            // 先试 selector（拿真窗口 → 看得到真实的 480×460 换行），没起来再退回
+            // sheet：夹具不能有"有时不出图"这种不确定性。
+            if UserDefaults.standard.bool(forKey: "demoSettingsOnLaunch") {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                NSApp.activate(ignoringOtherApps: true)
+                Self.showSettingsWindow()
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                if !Self.settingsWindowIsVisible() { demoSettingsSheet = true }
+            }
+
+            // 新建 SSH 表单抓手：`defaults write com.cogniterm.app demoNewSSHOnLaunch -bool YES`
+            // 表单只在 ⇧⌘N 之后才存在，同理需要一个不靠键盘的开法。
+            if UserDefaults.standard.bool(forKey: "demoNewSSHOnLaunch") {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                showNewSSHSession = true
+            }
+
             // 宠物抓手：`defaults write com.cogniterm.app demoPetLine -string "git st"`
             // 喂一行文本进去，等价于「用户刚敲完这行」——宠物面板与行内灰字都是
             // 输入驱动的，不这样喂就得真敲键盘（TCC 挡死，见 TerminalSession.injectDemoInput）。
@@ -154,6 +198,14 @@ struct MainSplitView: View {
         .sheet(isPresented: $showNewSSHSession) {
             NewSSHSessionSheet()
         }
+        #if DEBUG
+        // 兜底夹具：与 Settings 场景同一个视图、同样的 480×460，只是换了容器。
+        // 只用于核对文案换行，不代表真窗口的标题栏。
+        .sheet(isPresented: $demoSettingsSheet) {
+            SettingsView(sidecar: sidecar)
+                .frame(width: 480, height: 460)
+        }
+        #endif
         // ⇧⌘N：菜单在视图树之外，只能靠计数变化把 sheet 拉起来。
         .onChange(of: appCommands.newSSHSessionRequests) { _, _ in
             showNewSSHSession = true
@@ -189,6 +241,15 @@ struct MainSplitView: View {
     // MARK: - Detail
 
     private var detail: some View {
+        // 先量一次可用高度：终端该多高取决于「还剩多少地方」，不是常数。
+        // 放在 detail 最外层而不是各个子视图里，是为了让拖拽手柄和 frame 用**同一个**
+        // 数值——两处各测一次，在窗口缩放动画的那几帧里会算出不同的高度。
+        GeometryReader { proxy in
+            detailContent(availableHeight: proxy.size.height)
+        }
+    }
+
+    private func detailContent(availableHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
                 cwdDivergenceBar
@@ -224,13 +285,16 @@ struct MainSplitView: View {
                 Divider()
                 ComposerView(sidecar: sidecar, conversation: conversation)
             }
-            .frame(minHeight: 320)
+            // 与 `TerminalPanelSizing.conversationFloor` 是同一个数：
+            // 那边按它算终端的封顶预算，这边按它约束实际布局。
+            // 写成两处字面量的话，改一个忘一个 → 预算比实际大，两者互相挤。
+            .frame(minHeight: TerminalPanelSizing.conversationFloor)
             .frame(maxHeight: .infinity)
 
             if terminalPanelCollapsed {
                 collapsedTerminalBar
             } else {
-                terminalResizeHandle
+                terminalResizeHandle(availableHeight: availableHeight)
 
                 VStack(spacing: 0) {
                     // 会话切换在终端面板顶上（而不是侧栏）：用户看的是这块终端，
@@ -259,9 +323,24 @@ struct MainSplitView: View {
                 }
                 // 标签栏算在终端面板高度里（可拖拽的仍是这一整块），
                 // 否则每次展开都凭空多出 26pt 挤掉对话区。
-                .frame(height: terminalHeight)
+                .frame(height: resolvedTerminalHeight(availableHeight: availableHeight))
             }
         }
+    }
+
+    /// 面板最终高度。
+    ///
+    /// 用户拖过就用他定的值，否则按行数下限 / 窗口比例自适应。**两种都要过一遍
+    /// 当前窗口的预算**——窗口一缩就把对话区挤没、把终端留在原来的高度上，是
+    /// 这种「记住绝对高度」的布局最容易出的问题。
+    private func resolvedTerminalHeight(availableHeight: CGFloat) -> Double {
+        let fontSize = sessions.activeSession.fontSize
+        if customTerminalHeight > 0 {
+            return TerminalPanelSizing.displayHeight(desired: customTerminalHeight,
+                                                     available: availableHeight,
+                                                     fontSize: fontSize)
+        }
+        return TerminalPanelSizing.idealHeight(available: availableHeight, fontSize: fontSize)
     }
 
     /// 终端目录 ≠ agent 工作区时的提示条。
@@ -275,9 +354,18 @@ struct MainSplitView: View {
     /// 会话，归工作区切换流程管。
     private var cwdDivergenceBar: some View {
         Group {
-            // 跟着**活跃**会话走：切到 SSH 时 shellDirectory 恒为 nil（远端 cwd
-            // 与本地工作区无可比性），提示条自然隐藏，不会拿本地的旧目录骗人。
-            if let shellDirectory = sessions.activeSession.shellDirectory,
+            // 跟着**活跃**会话走，且只在本地会话显示。
+            //
+            // SSH 会话下这条**必须**关掉，理由不只是"无可比性"：远端 shell 若
+            // 真的发了 OSC 7，`shellDirectory` 就是一个远程路径，拿它跟本地
+            // workspacePath 比会得出"终端在 /opt/app，agent 工作区是 ~/CogniTerm"
+            // 这种错乱提示，而旁边的「终端 cd 到工作区」按钮会把一个**本地**
+            // 路径 `cd` 到远端去。
+            //
+            // 远程会话里「命令在哪跑」由终端工具栏的目录入口承载（唯一一处），
+            // 「文件工具看的还是本地」由审批卡说明——不在这里再重复一遍。
+            if sessions.activeSession.kind == .local,
+               let shellDirectory = sessions.activeSession.shellDirectory,
                !workspacePath.isEmpty,
                shellDirectory != workspacePath {
                 HStack(spacing: 6) {
@@ -361,25 +449,39 @@ struct MainSplitView: View {
     /// 无法持久化、无法 clamp、拖动时也没有视觉反馈。4pt 自绘手柄 +
     /// 拖拽改 @AppStorage 里的高度，行为完全可控（单测 clamp 纯函数）。
     /// 双击 = 折叠/展开（⌘J 同款）：只想聊天时一下让出 220pt。
-    private var terminalResizeHandle: some View {
+    private func terminalResizeHandle(availableHeight: CGFloat) -> some View {
         Rectangle()
             .fill(isDraggingHeight ? Color.accentColor : Color(nsColor: .separatorColor))
-            .frame(height: 4)
+            .frame(height: TerminalPanelSizing.handleHeight)
             .frame(maxWidth: .infinity)
             .contentShape(Rectangle())
             .accessibilityLabel("调整终端面板高度")
-            .help("拖动调整高度 · 双击折叠/展开终端（⌘J）")
+            .help(resizeHandleHelp(availableHeight: availableHeight))
             .onTapGesture(count: 2) {
                 terminalPanelCollapsed.toggle()
+            }
+            // 恢复自适应用右键而不是再抢一个双击：双击已经给了「折叠」，
+            // 同一个手势背两种语义，用户只能靠猜。
+            .contextMenu {
+                Button("恢复自适应高度") { customTerminalHeight = 0 }
+                    .disabled(customTerminalHeight <= 0)
+                Divider()
+                Button(terminalPanelCollapsed ? "展开终端" : "折叠终端") {
+                    terminalPanelCollapsed.toggle()
+                }
             }
             .gesture(
                 DragGesture(minimumDistance: 1)
                     .onChanged { value in
                         if !isDraggingHeight {
                             isDraggingHeight = true
-                            heightAtDragStart = terminalHeight
+                            // 从**现在看到的高度**起拖。自适应态下 customTerminalHeight
+                            // 是 0，拿它当起点会让第一次拖拽直接跳到底。
+                            heightAtDragStart = resolvedTerminalHeight(availableHeight: availableHeight)
                         }
-                        terminalHeight = Self.clampedTerminalHeight(
+                        // 存宽松钳制后的值，不存显示值：窗口拖小一次就永久变矮的 bug
+                        // 就是这么来的，见 `clampedCustomHeight`。
+                        customTerminalHeight = TerminalPanelSizing.clampedCustomHeight(
                             heightAtDragStart - value.translation.height
                         )
                     }
@@ -387,13 +489,42 @@ struct MainSplitView: View {
             )
     }
 
-    /// 终端高度钳制范围（pt）。下限保证工具栏 + 一行输出可见，
-    /// 上限给对话区留够空间（窗口 minHeight 600 - 320 对话区 - chrome）。
-    static func clampedTerminalHeight(_ value: Double) -> Double {
-        min(max(value, 120), 480)
+    /// 拖柄的提示：把「现在能看多少行」直接写出来。
+    ///
+    /// 用户抱怨的从来不是"面板 xx pt 太矮"，而是"看不到两行输出"。把行数摆出来，
+    /// 就不必再靠猜这个手柄该往上拖多少。
+    private func resizeHandleHelp(availableHeight: CGFloat) -> String {
+        let height = resolvedTerminalHeight(availableHeight: availableHeight)
+        let rows = Int(TerminalPanelSizing.visibleRows(
+            height: height,
+            fontSize: sessions.activeSession.fontSize
+        ))
+        let mode = customTerminalHeight > 0 ? "固定高度" : "自适应"
+        return "拖动调整高度（当前 \(Int(height))pt ≈ \(rows) 行，\(mode)）"
+             + " · 双击折叠/展开（⌘J） · 右键恢复自适应"
     }
 
     #if DEBUG
+    /// 打开设置窗口。
+    ///
+    /// Settings 是独立 Scene，SwiftUI 没给程序化入口；可用的 selector 名随系统版本变过
+    /// （macOS 14 起 `showSettingsWindow:`，更早叫 `showPreferencesWindow:`），
+    /// 所以两个都试一遍，命中即返回。
+    static func showSettingsWindow() {
+        for name in ["showSettingsWindow:", "showPreferencesWindow:"] {
+            if NSApp.sendAction(Selector(name), to: nil, from: nil) { return }
+        }
+    }
+
+    /// 设置窗口是不是真的起来了（selector 命中但窗口被吞掉时也要能察觉）。
+    static func settingsWindowIsVisible() -> Bool {
+        NSApp.windows.contains { win in
+            guard win.isVisible, !(win is NSPanel) else { return false }
+            let title = win.title
+            return title.contains("Settings") || title.contains("设置")
+        }
+    }
+
     /// `--demo-transcript` 用的示例回复：覆盖标题 / 段落 / 有序列表 /
     /// 单行代码块（带「运行」）/ 多行代码块（只有复制与插入）/ 行内 code /
     /// 路径 / URL。改排版时先看这一屏。

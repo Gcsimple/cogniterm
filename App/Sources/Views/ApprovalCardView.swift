@@ -153,19 +153,36 @@ struct TerminalCommandCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
 
-            // 多会话后必须说清注入到哪个终端：本地 shell 与远程机器上执行
-            // 同一条命令的后果完全不同。
-            if let target = pending.target {
-                HStack(spacing: 4) {
-                    Image(systemName: target == "本地" ? "laptopcomputer" : "network")
+            // 多会话后必须说清注入到哪台机器、哪个目录：同一条命令在本地 shell
+            // 与远程机器上执行的后果完全不同，目录则决定它作用于什么。
+            HStack(spacing: 4) {
+                Image(systemName: pending.execution.isRemote ? "network" : "laptopcomputer")
+                    .font(.caption2)
+                Text("目标终端：\(pending.execution.label)")
+                    .font(.caption2)
+                if let directory = pending.execution.directory {
+                    Text("·")
                         .font(.caption2)
-                    Text("目标终端：\(target)")
+                    Text(directory)
+                        .font(.system(.caption2, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                } else if pending.execution.isRemote {
+                    Text("· 远程登录目录")
                         .font(.caption2)
                 }
-                .foregroundStyle(.secondary)
             }
+            .foregroundStyle(.secondary)
 
-            if let root = pending.workspaceRoot {
+            // 远程会话：额外说清「文件工具看的仍然是本地」。不说这句，最容易
+            // 让人以为 agent 在远端也有文件读写权限。
+            if pending.execution.isRemote, let local = pending.localWorkspaceRoot {
+                Text("文件工具（read_file / glob 等）仍只作用于本地：\(local)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            } else if let root = pending.localWorkspaceRoot {
                 Text("工作目录：\(root)")
                     .font(.caption2)
                     .foregroundStyle(.secondary)

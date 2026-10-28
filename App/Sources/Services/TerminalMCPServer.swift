@@ -22,7 +22,9 @@ enum TerminalMCP {
     用户拒绝时你会收到错误结果，不要改用其他方式尝试执行同一条命令。 \
     适合：运行构建/测试、git、ls/cat/grep 等 shell 工作。一次执行一条命令，多条命令会排队串行执行。 \
     文件读写请使用专门的 fs 工具，不要用 shell 重定向或 rm 绕开沙箱策略。 \
-    如果命令执行或审批超过时限，你会收到"仍在执行"提示，完整输出稍后会以用户消息形式回喂给你。
+    如果命令执行或审批超过时限，你会收到"仍在执行"提示，完整输出稍后会以用户消息形式回喂给你。 \
+    注意执行环境可能不是这台机器：结果开头会有一行 [执行环境]，写明命令实际跑在哪台主机、哪个目录。\
+    以那一行为准来判断路径是远端还是本地；文件工具始终作用于本地，不作用于远端主机。
     """
 
     /// 工具入参 schema（MCP inputSchema，JSON Schema 词汇）。
@@ -43,11 +45,58 @@ enum TerminalMCP {
     static let instructions = """
     你可以通过 run_in_terminal 在用户的真实终端里执行 shell 命令。\
     该工具每次调用都会请求用户审批，命令在用户可见的终端里执行，输出作为工具结果返回。\
-    用户的终端是命令执行的唯一通道——没有其他执行 shell 的方式。
+    用户的终端是命令执行的唯一通道——没有其他执行 shell 的方式。\
+    终端可能是 SSH 远程会话：此时命令在远端主机执行，而文件工具（read_file / glob 等）仍然只作用于本地机器。\
+    每次结果的 [执行环境] 行给出真实的主机与目录，请据此判断你在哪个文件系统上工作，不要假设远端路径在本地可见。
     """
+
+    /// 给工具结果加上「这条命令实际跑在哪」的抬头。
+    ///
+    /// 只在远程会话加：本地是默认情况，每条结果都挂三行噪音既没用又稀释注意力。
+    /// 远程则必须挂——否则模型会把远端 `ls` 的输出当成本地目录内容，接着用本地
+    /// fs 工具去读那些路径（轻则报找不到，重则读到同名文件并当成事实继续推理）。
+    ///
+    /// 走**工具结果**而不是 system prompt：dsh 的 `session/new` 没有塞 prompt 的
+    /// 入口（cwd 在建立时就固定了），而工具结果是唯一每一轮都必然进上下文的位置。
+    static func annotateExecution(_ output: String, for execution: CommandExecutionTarget) -> String {
+        guard execution.isRemote else { return output }
+        let directory = execution.directory ?? "（远程登录目录，未指定）"
+        return """
+        [执行环境] 远程主机 \(execution.label)，命令在 \(directory) 执行
+        文件工具（read_file / glob 等）作用于本地机器，不作用于这台远端主机；远端文件请用 run_in_terminal（cat / sed / ls / find）。
+        ---
+        \(output)
+        """
+    }
 }
 
 // MARK: - 依赖协议（可替换，测试用 fake）
+
+/// 一条命令将要注入的**执行目标**：哪台机器、哪个目录。
+///
+/// 为什么要三样一起传，而不是只传一个展示名：SSH 会话里「命令跑在哪台机器」
+/// 和「跑在哪个目录」是两个独立的信息，审批卡和 agent 都需要它们；而风险判定
+/// 更需要知道 `directory` 该按本地规则（越界检查）还是远端规则（不做本地越界
+/// 判定）来算——远程的 `/opt/app` 用本地 workspaceRoot 去比，永远判越界。
+struct CommandExecutionTarget: Equatable, Sendable {
+    /// 展示名：「本地」/「user@host」。
+    var label: String
+    /// 命令实际落地的目录。nil = 未知（远程未指定时表示登录目录）。
+    var directory: String?
+    var isRemote: Bool
+
+    /// 默认值给本地：没有执行平面时（比如 server 还没接上）宁可显示「本地」，
+    /// 也不显示一个含糊的空标注——用户看到的每一处都必须能对应到一台机器。
+    static let localDefault = CommandExecutionTarget(label: "本地", directory: nil, isRemote: false)
+
+    /// 审批卡上的一行摘要：`user@host:/opt/app`。
+    var summary: String {
+        guard isRemote else {
+            return directory.map { "\(label)：\($0)" } ?? label
+        }
+        return "\(label):\(directory ?? "~")"
+    }
+}
 
 /// 终端命令审批门。实现方负责 UI / 规则 / 超时取消；fail-closed。
 @MainActor
@@ -61,6 +110,22 @@ protocol TerminalCommandGate: AnyObject {
                                 completion: @escaping (TerminalCommandDecision) -> Void)
     /// 服务端放弃等待（超时）。实现方应清掉挂起的审批并以拒绝语义了结。
     func cancelTerminalCommandRequest()
+
+    /// 带完整执行上下文的审批请求（当前 server 走这条）。
+    ///
+    /// 与上面那条旧签名并存，是为了不给测试里那批只关心"允许/拒绝"的 fake
+    /// 强加一个它们用不到的参数——默认实现直接丢掉上下文转调旧方法。
+    func requestTerminalCommand(_ command: String,
+                                execution: CommandExecutionTarget,
+                                completion: @escaping (TerminalCommandDecision) -> Void)
+}
+
+extension TerminalCommandGate {
+    func requestTerminalCommand(_ command: String,
+                                execution: CommandExecutionTarget,
+                                completion: @escaping (TerminalCommandDecision) -> Void) {
+        requestTerminalCommand(command, target: execution.label, completion: completion)
+    }
 }
 
 enum TerminalCommandDecision {
@@ -77,10 +142,22 @@ protocol TerminalCommandExecutor: AnyObject {
     var isCapturingCommand: Bool { get }
     /// 审批卡上的目标标注（「本地」/「user@host」）。
     var commandTargetDescription: String { get }
+    /// 命令将要在哪台机器、哪个目录执行（审批卡 + agent 结果标注 + 风险判定都用它）。
+    var commandExecutionTarget: CommandExecutionTarget { get }
     /// 注入命令执行，收敛后回调剥净 ANSI、截断过的输出。回调必达
     /// （静默 3 秒启发式 + 5 分钟硬超时，见 TerminalSession.runCommandCaptured）。
     func runCommandCaptured(_ command: String, onCapture: @escaping @MainActor (String) -> Void)
 }
+
+extension TerminalCommandExecutor {
+    /// 旧 fake 只提供 `commandTargetDescription`，按本地目标兜底。
+    var commandExecutionTarget: CommandExecutionTarget {
+        CommandExecutionTarget(label: commandTargetDescription,
+                               directory: nil,
+                               isRemote: false)
+    }
+}
+
 
 // MARK: - MCP 工具结果
 
@@ -328,8 +405,13 @@ final class TerminalMCPServer: ObservableObject {
             return
         }
         let gateBudget = min(gateTimeout, call.remaining - deadlineMargin)
+        // 执行目标在**审批之前**取一次：它决定审批卡上写哪台机器/哪个目录，
+        // 也决定风险判定按本地还是远端规则算。审批期间用户切了标签的话，
+        // 这里记下的目标就是"用户当时批准的那个"，不会被后续切换改写。
+        // （命令注入仍走活跃会话，见 SessionManager——这条差异另案处理。）
+        let execution = executor?.commandExecutionTarget ?? .localDefault
         let gateOutcome = await awaitGate(call.command,
-                                          target: executor?.commandTargetDescription,
+                                          execution: execution,
                                           timeout: gateBudget)
         if call.resolved { await yieldUntilIdle(); return }
         switch gateOutcome {
@@ -374,9 +456,11 @@ final class TerminalMCPServer: ObservableObject {
         )
         switch output {
         case .captured(let text):
-            respond(call, .success(text))
+            respond(call, .success(TerminalMCP.annotateExecution(text, for: execution)))
         case .timeout:
-            respond(call, .success("命令已开始在终端执行，但超过 55 秒未收敛（可能是长构建、tail -f 或交互式命令）。执行完毕后输出会以用户消息形式回喂给你；期间用户可以随时在终端里 Ctrl-C。"))
+            respond(call, .success(TerminalMCP.annotateExecution(
+                "命令已开始在终端执行，但超过 55 秒未收敛（可能是长构建、tail -f 或交互式命令）。执行完毕后输出会以用户消息形式回喂给你；期间用户可以随时在终端里 Ctrl-C。",
+                for: execution)))
         case .failed(let message):
             respond(call, .failure(message))
         }
@@ -397,7 +481,9 @@ final class TerminalMCPServer: ObservableObject {
         case timeout
     }
 
-    private func awaitGate(_ command: String, target: String?, timeout: TimeInterval) async -> GateOutcome {
+    private func awaitGate(_ command: String,
+                           execution: CommandExecutionTarget,
+                           timeout: TimeInterval) async -> GateOutcome {
         guard timeout > 0 else { return .timeout }
         // ⚠️ 不要用 withTaskGroup 做这个赛跑：task group 在作用域退出时
         // **隐式等待所有子任务**，挂在"等用户点允许"上的子任务永远不完，
@@ -411,7 +497,7 @@ final class TerminalMCPServer: ObservableObject {
                     box.resume(.reject)
                     return
                 }
-                self.gate?.requestTerminalCommand(command, target: target) { decision in
+                self.gate?.requestTerminalCommand(command, execution: execution) { decision in
                     box.resume(decision == .allow ? .allow : .reject)
                 }
             }

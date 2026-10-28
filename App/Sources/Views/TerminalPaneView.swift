@@ -274,11 +274,27 @@ final class TerminalSession: ObservableObject, Identifiable {
     private(set) var label: String
     /// 远端目标（nil = 本地 shell）。
     private(set) var sshTarget: SSHTarget?
+    /// 已保存的登录密码（**仅内存**；来源是 Keychain，由 `SessionManager` 建会话时读一次）。
+    ///
+    /// 唯一用途是「连接时自动填入」：不落盘、不进日志、不进宠物输入缓冲
+    /// （所以注入走 `pty.write` 而不是 `send`）。
+    private(set) var savedPassword: String?
+    /// 这一次连接是否已经自动填过密码。
+    ///
+    /// 一次连接最多填一次：密码错了要让用户接手，而不是拿同一个错密码
+    /// 去撞服务端的 max attempts（撞多了是账号锁定，不是输错密码）。
+    private var didAutoFillPassword = false
 
-    init(kind: Kind, label: String, sshTarget: SSHTarget? = nil) {
+    init(kind: Kind,
+         label: String,
+         sshTarget: SSHTarget? = nil,
+         remoteDirectory: String? = nil,
+         password: String? = nil) {
         self.kind = kind
         self.label = label
         self.sshTarget = sshTarget
+        self.remoteWorkingDirectory = remoteDirectory
+        self.savedPassword = password
     }
 
     /// 「不指定就本地」的便利构造。
@@ -316,11 +332,31 @@ final class TerminalSession: ObservableObject, Identifiable {
     @Published private(set) var terminalTitle: String = ""
     /// shell 通过 OSC 7 报告的工作目录。多数默认配置不会发，所以可能是 nil。
     @Published private(set) var shellDirectory: String?
+    /// **远程执行目录**（仅 SSH 会话有意义）：agent 的 `run_in_terminal` 会在
+    /// 这个目录里执行，用户也可以在这里选。
+    ///
+    /// 为什么不复用 `workspaceRoot`：那个是 agent 的**本地**文件域，同时也是
+    /// sidecar 沙箱边界（`-D WORKSPACE_ROOT=`）与 `WorkspaceFileReader` 的读边界，
+    /// 三处都必须是本地路径。SSH 会话里「命令在哪跑」和「文件工具看哪儿」本来
+    /// 就是两件事，硬塞进同一个变量会把沙箱边界一起带歪。
+    ///
+    /// nil = 用户还没指定。此时不注入任何 `cd`，让命令落在远程登录目录——
+    /// **不猜**（猜错比不猜更糟：agent 会拿到一屏看似合理的错目录内容）。
+    @Published private(set) var remoteWorkingDirectory: String?
+
+    /// 远程执行目录变了（值真的变了才触发）。`SessionManager` 用它重新落盘
+    /// 终端现场——否则用户设的目录重启就丢，而"重启回到登录目录"正是这个
+    /// 功能最容易被骂的地方。
+    var onRemoteDirectoryChanged: (() -> Void)?
     /// 「在终端运行」的运行时状态。审批卡出口见 `runCommandCaptured`。
     @Published private(set) var runState: TerminalRunState = .idle
     @Published private(set) var fontSize: CGFloat = terminalFontSizes[defaultTerminalFontSizeIndex]
     /// 工作区切走了，但终端还停在旧目录。非 nil 时工具条上的同步按钮会高亮。
     @Published private(set) var pendingDirectorySync: String?
+    /// 远程执行目录变了，但远端 shell 还没 `cd` 过去（终端正忙 / 没起来）。
+    /// 与 `pendingDirectorySync` 分开：那是本地工作区，这是远程目录，两边
+    /// 的"跟进"是两件不同的事。
+    @Published private(set) var pendingRemoteDirectorySync: String?
     /// 用户已经往上翻、不在底部了。true 时右下角浮出"回到底部"。
     @Published private(set) var isViewingHistory = false
     /// 翻看历史期间新到的输出块数（按 chunk 计，不是精确行数）。
@@ -408,6 +444,17 @@ final class TerminalSession: ObservableObject, Identifiable {
     /// 跑在哪个终端，否则用户无法分辨那是本地 shell 还是远程机器。
     var commandTargetDescription: String { label }
 
+    /// 命令要落在哪台机器、哪个目录。审批卡、风险判定、agent 结果标注都读它。
+    ///
+    /// `directory` 对本地会话是工作区根，对远程会话是用户设定的远程目录
+    /// （nil = 远程登录目录）。注意它**不是** `workspaceRoot`：远程会话下
+    /// `workspaceRoot` 依然指向本地文件域，两者故意分开。
+    var commandExecutionTarget: CommandExecutionTarget {
+        CommandExecutionTarget(label: label,
+                               directory: commandWorkingDirectory,
+                               isRemote: kind == .ssh)
+    }
+
     func start(root: URL) {
         guard workspaceRoot == nil else { return }
         workspaceRoot = root.standardizedFileURL
@@ -469,6 +516,9 @@ final class TerminalSession: ObservableObject, Identifiable {
         stop()
         launchAttempted = false
         pendingDirectorySync = nil
+        // 重启后远端 shell 回到登录目录，而用户设定的执行目录还在——
+        // 把差异摆到同步按钮上，别让它静默失配。
+        pendingRemoteDirectorySync = kind == .ssh ? remoteWorkingDirectory : nil
         let size = view?.terminalDimensions
         if let root = workspaceRoot {
             launch(root: root, columns: size?.cols ?? 80, rows: size?.rows ?? 25)
@@ -553,8 +603,14 @@ final class TerminalSession: ObservableObject, Identifiable {
     // MARK: 宠物补全
 
     /// 宠物眼里的「当前目录」：OSC 7 报了就信 shell，没报就退回工作区根。
+    ///
+    /// 远程会话回退到**远程**目录而不是本地工作区：宠物拿这个路径去列条目，
+    /// 套一个本地路径进去只会在 SSH 会话里补出一堆本地目录名，敲下去全是
+    /// `no such file`。（远程路径在本地列不出东西 → 空候选，这是正确降级：
+    /// 宁可不给，不给错的。）
     private var petDirectory: String? {
-        shellDirectory ?? workspaceRoot?.path
+        if kind == .ssh { return remoteWorkingDirectory ?? shellDirectory }
+        return shellDirectory ?? workspaceRoot?.path
     }
 
     /// 键盘漏斗的**最前面**调用：这组字节如果是「接受行内灰字」的键，
@@ -817,7 +873,19 @@ final class TerminalSession: ObservableObject, Identifiable {
         pump.beginRecording()
         // 与 syncWorkingDirectory 同一条注入路径：包成 submitted 命令
         ///（带换行）写给 PTY，shell 照常执行——用户能看到、能 Ctrl-C。
-        let invocation = ShellCommand.submitted(command)
+        ///
+        /// SSH 会话额外补一句 `cd`：agent 给的命令文本里没有「在哪个目录执行」
+        /// 这个信息（它以为的目录在远端，终端却可能停在别处）。不补这一层，
+        /// 同一条 `ls` 会在两个不同的世界里执行，而 agent 拿到输出后**无从察觉**。
+        /// 单行 / 多行的不同处理见 `RemoteCommand`（多行必须包进子 shell，
+        /// 否则 `&&` 只管住第一行）。
+        ///
+        /// 注入的是加了前缀的文本，但 `runState` 里存的是**原始命令**——
+        /// 浮层上要显示用户认得出的那条命令，不是带引号路径的长串。
+        let injected = kind == .ssh
+            ? RemoteCommand.withWorkingDirectory(remoteWorkingDirectory, command: command)
+            : command
+        let invocation = ShellCommand.submitted(injected)
         pty.write(Data(invocation.utf8))
 
         convergenceTask?.cancel()
@@ -907,12 +975,132 @@ final class TerminalSession: ObservableObject, Identifiable {
     func zoomOut() { setFontSizeIndex(fontSizeIndex - 1) }
 
     /// 把终端的 cwd 切到工作区根目录。**只在用户点按钮时调用**（见 `workspaceChanged`）。
-    /// 远程会话没有"本地工作区"概念，直接忽略。
+    ///
+    /// SSH 会话下这里的语义是「让远端 shell 跟进 `remoteWorkingDirectory`」——
+    /// 旧实现直接 `guard kind == .local else { return }`，于是远程会话里这个
+    /// 按钮点了毫无反应，而它恰恰是唯一能让「agent 执行目录」和「终端所在目录」
+    /// 对齐的手动出口。
     func syncWorkingDirectory() {
-        guard kind == .local, let root = workspaceRoot, pty != nil else { return }
-        let command = ShellCommand.submitted(ShellCommand.directoryChange(toAbsolutePath: root.path))
-        pty?.write(Data(command.utf8))
-        pendingDirectorySync = nil
+        switch kind {
+        case .local:
+            guard let root = workspaceRoot, pty != nil else { return }
+            let command = ShellCommand.submitted(ShellCommand.directoryChange(toAbsolutePath: root.path))
+            pty?.write(Data(command.utf8))
+            pendingDirectorySync = nil
+        case .ssh:
+            guard remoteWorkingDirectory != nil, status.isRunning else { return }
+            syncRemoteShellIfPossible()
+        }
+    }
+
+    // MARK: 远程执行目录（SSH）
+
+    /// 当前会话的命令是否跑在远端。
+    var isRemoteExecution: Bool { kind == .ssh }
+
+    /// agent 的命令将落在哪个目录（本地是工作区，远程是用户设定的远程目录）。
+    ///
+    /// nil 在远程语义下表示"远程登录目录"——不是"不知道"，只是没显式设定。
+    var commandWorkingDirectory: String? {
+        kind == .ssh ? remoteWorkingDirectory : workspaceRoot?.path
+    }
+
+    /// 设定远程执行目录，并**立刻**让远端 shell 跟过去（用户显式确认过的动作，
+    /// 与"工作区切换不自动 cd"不是一回事：那次是怕打断正在跑的前台程序，
+    /// 这里是用户点名要进这个目录）。
+    ///
+    /// 终端正忙（有命令在跑 / 没起来）时不注入，改用 `pendingRemoteDirectorySync`
+    /// 亮起工具条上的同步按钮——往一个正在跑的程序里打字比不跟进更糟。
+    ///
+    /// - Parameter path: 传 nil / 空串 = 取消设定（回到"远程登录目录"，不注入 cd）。
+    func setRemoteWorkingDirectory(_ path: String?) {
+        guard kind == .ssh else { return }
+        let trimmed = path?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let normalized: String? = trimmed.isEmpty ? nil : trimmed
+        let changed = remoteWorkingDirectory != normalized
+        remoteWorkingDirectory = normalized
+        if changed { onRemoteDirectoryChanged?() }
+        guard normalized != nil else {
+            pendingRemoteDirectorySync = nil
+            return
+        }
+        // 值没变也照样尝试同步一次：终端可能被用户自己 cd 走了，
+        // 「再说一遍用这个目录」是合理的意图。
+        syncRemoteShellIfPossible()
+    }
+
+    /// 列举远程目录（选择器用）。只读探测，不碰 PTY、不打扰用户正在跑的命令。
+    ///
+    /// 复用已认证的通道（`controlSocketPath`）：探测走 `BatchMode`，它自己不会
+    /// 认证、也不会等密码提示——不搭上 master 的话，「存了密码」的用户反而点不开
+    /// 目录浏览，只会看到"该主机需要交互认证"。
+    func listRemoteDirectories(
+        at path: String,
+        completion: @escaping @MainActor (Result<RemoteDirectoryListing, RemoteDirectoryError>) -> Void
+    ) {
+        guard let target = sshTarget else {
+            completion(.failure(.unreachable("会话没有远端目标")))
+            return
+        }
+        let socket = SSHConnectionSharing.socketPath(for: target,
+                                                    directory: SSHControlDirectory.path)
+        Task { @MainActor in
+            do {
+                let listing = try await RemoteDirectoryBrowser.list(target: target,
+                                                                    path: path,
+                                                                    controlSocketPath: socket)
+                completion(.success(listing))
+            } catch let error as RemoteDirectoryError {
+                completion(.failure(error))
+            } catch {
+                completion(.failure(.unreachable("\(error)")))
+            }
+        }
+    }
+
+    /// 往远端 shell 注入 `cd`。
+    ///
+    /// 三道闸：会话是远程、用户确实设过目录、终端起来了且闲着。
+    /// 任一不满足就把目标记进 `pendingRemoteDirectorySync`，让工具条上的
+    /// 同步按钮亮起来——**留下一个可见的待办，而不是静默丢掉**。
+    private func syncRemoteShellIfPossible() {
+        guard kind == .ssh, let remote = remoteWorkingDirectory else { return }
+        guard let pty, status.isRunning, !isCapturingCommand else {
+            pendingRemoteDirectorySync = remote
+            return
+        }
+        let command = ShellCommand.submitted(
+            RemoteDirectoryBrowser.directoryChangeCommand(remote)
+        )
+        pty.write(Data(command.utf8))
+        pendingRemoteDirectorySync = nil
+    }
+
+    /// ssh 停在密码提示上：把 Keychain 里存的密码填进去。
+    ///
+    /// 注入走 `pty?.write` 而**不是** `send`：`send` 会把字节同时喂给宠物的
+    /// 影子命令行缓冲区，密码就会以明文出现在候选面板与行内灰字里。
+    ///
+    /// 填完 `didAutoFillPassword` 就锁死：密码错了要让人接手，重复拿错密码
+    /// 去撞服务端的 max attempts 会把账号锁掉。
+    private func autoFillPasswordIfPossible() {
+        guard kind == .ssh,
+              let password = savedPassword, !password.isEmpty,
+              !didAutoFillPassword,
+              let pty, status.isRunning else { return }
+        didAutoFillPassword = true
+        // ssh 把 tty 切到了 no-echo，屏幕上只会多一个换行。
+        pty.write(Data((password + "\r").utf8))
+        noteDiagnostic("[ssh] 已填入保存的登录密码（\(label)）")
+    }
+
+    /// 更新这一会话内存里的密码（Keychain 的写入由调用方负责）。
+    ///
+    /// 只改内存：新建 ssh 进程才会重新走一次认证，所以调用方通常紧接着
+    /// `restart()`——不然用户会盯着一个已经连上（或已经失败）的旧连接发呆。
+    func setSavedPassword(_ password: String?) {
+        savedPassword = (password?.isEmpty ?? true) ? nil : password
+        didAutoFillPassword = false
     }
 
     /// 会话切换后把键盘焦点交给这个终端（点击会话列表即可以开始打字）。
@@ -940,16 +1128,29 @@ final class TerminalSession: ObservableObject, Identifiable {
         }
     }
 
-    /// 优先显示 shell 自报的目录（OSC 7），没有就显示工作区根。
-    /// 远程会话不显示本地目录——那会让人以为命令在本地跑。
+    /// 本地：优先显示 shell 自报的目录（OSC 7），没有就显示工作区根。
+    ///
+    /// 远程：显示**远程执行目录**（用户设定的那个），而不是本地工作区——
+    /// 旧实现远程一律返回 nil，于是「命令到底在远端哪个目录跑」全 App 无处可见，
+    /// 而这恰恰是 agent 与用户最容易对不上的一个事实。
     var directoryText: String? {
-        guard kind == .local else { return nil }
-        return abbreviatingHome(shellDirectory ?? workspaceRoot?.path)
+        switch kind {
+        case .local:
+            return abbreviatingHome(shellDirectory ?? workspaceRoot?.path)
+        case .ssh:
+            // 远程路径不能套本地家目录缩写：`/Users/x` 在远端几乎不存在。
+            return remoteWorkingDirectory ?? shellDirectory
+        }
     }
 
     func syncHint() -> String? {
-        guard let pending = pendingDirectorySync else { return nil }
-        return "工作区已切到 \(abbreviatingHome(pending) ?? pending)，点击让终端跟进"
+        if let pending = pendingDirectorySync {
+            return "工作区已切到 \(abbreviatingHome(pending) ?? pending)，点击让终端跟进"
+        }
+        if let pending = pendingRemoteDirectorySync {
+            return "远程执行目录是 \(pending)，点击让远端 shell 跟进"
+        }
+        return nil
     }
 
     // MARK: 视图同步
@@ -978,6 +1179,16 @@ final class TerminalSession: ObservableObject, Identifiable {
         shellDirectory = directory
         if let directory, directory == pendingDirectorySync {
             pendingDirectorySync = nil
+        }
+        // 远程会话：远端 shell 自报目录（OSC 7，需要远端 shell 配置）时，
+        // 若用户还没指定过执行目录，就**采纳它**——"终端在哪，agent 就按哪算"
+        // 是这个功能的默认期待。已经指定过则不覆盖：用户显式选的值不该被
+        // 一次 prompt 钩子悄悄改掉。
+        if kind == .ssh, remoteWorkingDirectory == nil, let directory, !directory.isEmpty {
+            remoteWorkingDirectory = directory
+        }
+        if kind == .ssh, let directory, directory == pendingRemoteDirectorySync {
+            pendingRemoteDirectorySync = nil
         }
         if petDirectory != oldDirectory {
             reloadPetEntries()
@@ -1023,6 +1234,12 @@ final class TerminalSession: ObservableObject, Identifiable {
         if let sshTarget {
             profile = .ssh(
                 sshTarget,
+                // 连接复用：同一个目标在 10 分钟内只认证一次。这是「每次开
+                // 标签都要重新输密码」的主解，而且完全不碰密码本身。
+                controlSocketPath: SSHConnectionSharing.socketPath(
+                    for: sshTarget,
+                    directory: SSHControlDirectory.path
+                ),
                 programName: "CogniTerm",
                 programVersion: Self.programVersion
             )
@@ -1038,12 +1255,20 @@ final class TerminalSession: ObservableObject, Identifiable {
         let generation = pump.begin()
         let sink = pump
         let terminal = PseudoTerminal()
+        // 密码自动填充的探测器：只在 SSH 会话、且确实存过密码时才装。
+        // 它跑在读线程（与输出泵同一个回调），命中密码提示后跳主线程写入。
+        let probe = (sshTarget != nil && savedPassword != nil) ? PasswordPromptProbe() : nil
         terminal.onOutput = { data in
             sink.feed(data, generation: generation)
+            if probe?.feed(data) == true {
+                Task { @MainActor [weak self] in self?.autoFillPasswordIfPossible() }
+            }
         }
         terminal.onExit = { [weak self] code in
             Task { @MainActor in self?.shellExited(code: code, generation: generation) }
         }
+        // 新进程 = 新的一次认证机会。
+        didAutoFillPassword = false
 
         do {
             try terminal.launch(profile.ptyConfig(
@@ -1358,6 +1583,10 @@ struct TerminalPanel: View {
     /// （静默/立即回喂/跳过）在终端浮层上决定。
     var onRunCapture: (String) -> Void = { _ in }
     @Environment(\.colorScheme) private var colorScheme
+    /// 远程目录选择器（只有 SSH 会话会置 true）。
+    @State private var showRemoteDirectory = false
+    /// 登录密码设置（只有 SSH 会话会置 true）。
+    @State private var showPasswordSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1387,6 +1616,14 @@ struct TerminalPanel: View {
         }
         .background(Color(nsColor: .textBackgroundColor))
         .animation(.easeOut(duration: 0.15), value: session.isViewingHistory)
+        // 远程目录选择器挂在终端面板上（而不是 MainSplitView 的中央 sheet 路由）：
+        // 它天然属于"这个会话"，切换标签后不该还挂着一个别的会话的选择器。
+        .sheet(isPresented: $showRemoteDirectory) {
+            RemoteDirectorySheet(session: session)
+        }
+        .sheet(isPresented: $showPasswordSheet) {
+            SSHPasswordSheet(session: session)
+        }
         // 胖鱼打字时主动展开的候选面板：鱼只上报锚点，可见性由
         // `session.petAutoPanelVisible` 广播（原因见该属性的注释）。
         // 面板在最外层渲染，盖在终端 NSView 之上、钉在鱼身下沿。
@@ -1492,7 +1729,9 @@ struct TerminalPanel: View {
                 .foregroundStyle(session.status.isRunning ? .secondary : .tertiary)
                 .lineLimit(1)
 
-            if let directory = session.directoryText {
+            if session.kind == .ssh {
+                remoteDirectoryButton
+            } else if let directory = session.directoryText {
                 Text(directory)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.tertiary)
@@ -1512,6 +1751,19 @@ struct TerminalPanel: View {
                     .font(.caption2)
                     .foregroundStyle(.orange)
                     .help(hint)
+            }
+
+            // 登录密码：只在 SSH 会话出现。图标状态直接反映"这台主机存没存密码"，
+            // 因为"为什么这次没自动填"是用户第一个会问的问题。
+            if session.kind == .ssh {
+                icon("key.fill",
+                     help: session.savedPassword == nil
+                         ? "登录密码未保存：每次连接都要手动输入 · 点击设置"
+                         : "已保存登录密码，连接时自动填入 · 点击修改或清除",
+                     enabled: true,
+                     highlighted: session.savedPassword == nil) {
+                    showPasswordSheet = true
+                }
             }
 
             // 选区 → agent：把选中的终端输出塞进输入框（VS Code「Add to Chat」同款）。
@@ -1561,16 +1813,45 @@ struct TerminalPanel: View {
         .padding(.vertical, 5)
     }
 
+    /// SSH 会话的「远程执行目录」入口。
+    ///
+    /// 必须可点：本地会话里目录是 agent 文件域的**结果**（改它要走侧栏），
+    /// 而远程会话里「命令在哪个目录跑」是用户随时要能改的东西——否则 SSH
+    /// 会话永远停在登录目录，而 agent 以为自己在项目里。
+    private var remoteDirectoryButton: some View {
+        Button { showRemoteDirectory = true } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "folder")
+                    .font(.system(size: 9))
+                Text(session.remoteWorkingDirectory ?? "选择远程目录")
+                    .font(.system(.caption2, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            }
+            .foregroundStyle(session.remoteWorkingDirectory == nil ? Color.orange : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(session.remoteWorkingDirectory == nil
+              ? "还没指定远程执行目录：agent 的命令会落在远程登录目录。点这里选一个"
+              : "agent 的命令在这个远程目录里执行 · 点击更改")
+    }
+
     /// 标题的提示：把可用的快捷键一次性列清楚。
     /// "难用"的一大来源是功能藏在图标里、 discoverability 为零。
     private var toolbarHelp: String {
         var lines = [
-            "本地 shell（\(session.statusText)）",
+            // 远程会话写「本地 shell」是错的：这个提示是用户确认"我在哪台机器上"
+            // 的最后一道，写错了比不写更糟。
+            session.kind == .ssh ? "SSH \(session.label)（\(session.statusText)）"
+                                 : "本地 shell（\(session.statusText)）",
             "⌘K 清屏 · ⌘F 查找 · ⌘R 重启 shell",
             "⌘. 中断 · ⌘+ / ⌘- / ⌘0 字号",
             "⌘C / ⌘V / ⌘A 复制粘贴全选（终端聚焦时）",
         ]
-        if let directory = session.directoryText {
+        if session.kind == .ssh {
+            lines.insert("agent 执行目录：" + (session.remoteWorkingDirectory ?? "远程登录目录（未指定）"),
+                         at: 1)
+        } else if let directory = session.directoryText {
             lines.insert("目录：\(directory)", at: 1)
         }
         if !session.diagnostics.isEmpty {
@@ -1612,3 +1893,21 @@ struct TerminalPanel: View {
         .help(help)
     }
 }
+
+/// 密码提示探测器的线程安全外壳。
+///
+/// PTY 输出在读线程回调，主线程同时在判「该不该填」——探测器本身是个可变
+/// struct，直接跨线程用就是数据竞争。这里只做一把锁，不引入任何策略
+/// （判定规则全在 `PasswordPromptDetector` 里，纯函数、可单测）。
+private final class PasswordPromptProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var detector = PasswordPromptDetector()
+
+    /// 返回 true 表示这一屏停在密码提示上。
+    func feed(_ data: Data) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return detector.feed(data)
+    }
+}
+

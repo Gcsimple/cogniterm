@@ -16,14 +16,20 @@ public struct StoredTerminalTab: Codable, Equatable, Sendable {
     public var username: String?
     public var identityFilePath: String?
     public var jumpHost: String?
+    /// 远程执行目录（agent 的命令在这个目录里跑）。
+    ///
+    /// 可选且**可缺失**：旧版本写的配置文件里没有这个键，合成解码走
+    /// `decodeIfPresent`，读到 nil——老现场照样能恢复，只是目录回到登录目录。
+    public var remoteDirectory: String?
 
-    public init(label: String, target: SSHTarget) {
+    public init(label: String, target: SSHTarget, remoteDirectory: String? = nil) {
         self.label = label
         self.host = target.host
         self.port = target.port
         self.username = target.username
         self.identityFilePath = target.identityFilePath
         self.jumpHost = target.jumpHost
+        self.remoteDirectory = remoteDirectory
     }
 
     /// 还原成可连接的 `SSHTarget`。非法值（空 host 等）返回 nil ——
